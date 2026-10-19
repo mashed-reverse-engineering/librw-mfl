@@ -17,6 +17,7 @@ enum RenderState
 	FOGENABLE,
 	FOGCOLOR,
 	CULLMODE,
+	FILLMODE, // d3d9 only !!!
 	// TODO:
 	// fog type, density ?
 	// ? shademode
@@ -92,6 +93,13 @@ enum BlendFunction
 	BLENDINVDESTCOLOR,
 	BLENDSRCALPHASAT
 	// TODO: add more perhaps
+};
+
+enum FillMode
+{
+	FILLPOINT,
+	FILLWIREFRAME,
+	FILLSOLID
 };
 
 void SetRenderState(int32 state, uint32 value);

@@ -78,6 +78,7 @@ struct RwStateCache {
 	uint32 fogenable;
 	RGBA fogcolor;
 	uint32 cullmode;
+	uint32 fillmode;
 	uint32 stencilenable;
 	uint32 stencilpass;
 	uint32 stencilfail;
@@ -202,6 +203,12 @@ static uint32 cullmodeMap[] = {
 	D3DCULL_NONE,
 	D3DCULL_CW,
 	D3DCULL_CCW
+};
+
+static uint32 fillmodeMap[] = {
+	D3DFILL_POINT,
+	D3DFILL_WIREFRAME,
+	D3DFILL_SOLID,
 };
 
 static uint32 filterConvMap[] = {
@@ -681,6 +688,12 @@ setRwRenderState(int32 state, void *pvalue)
 			setRenderState(D3DRS_CULLMODE, cullmodeMap[value]);
 		}
 		break;
+	case FILLMODE:
+		if(rwStateCache.fillmode != value){
+			rwStateCache.fillmode = value;
+			setRenderState(D3DRS_FILLMODE, fillmodeMap[value]);
+		}
+		break;
 
 	case STENCILENABLE:
 		if(rwStateCache.stencilenable != bval){
@@ -799,6 +812,9 @@ getRwRenderState(int32 state)
 		break;
 	case CULLMODE:
 		val = rwStateCache.cullmode;
+		break;
+	case FILLMODE:
+		val = rwStateCache.fillmode;
 		break;
 
 	case STENCILENABLE:
@@ -1684,6 +1700,9 @@ initD3D(void)
 
 	d3ddevice->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
 	rwStateCache.cullmode = CULLNONE;
+
+	d3ddevice->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
+	rwStateCache.fillmode = FILLSOLID;
 
 	d3ddevice->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
 	d3ddevice->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
