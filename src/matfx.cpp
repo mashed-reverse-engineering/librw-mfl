@@ -440,7 +440,15 @@ readMaterialMatFX(Stream *stream, int32, void *object, int32 offset, int32)
 				tex = Texture::streamRead(stream);
 			}
 			idx = matfx->getEffectIndex(type);
-			assert(idx >= 0);
+			if(idx < 0){
+				// effect type doesn't match header (issue #164), would write fx[-1]
+				if(bumpedTex)
+					bumpedTex->destroy();
+				if(tex)
+					tex->destroy();
+				RWERROR((ERR_GENERAL, "matfx effect type mismatch"));
+				return nil;
+			}
 			matfx->fx[idx].bump.bumpedTex = bumpedTex;
 			matfx->fx[idx].bump.tex = tex;
 			matfx->fx[idx].bump.coefficient = coefficient;
@@ -459,7 +467,13 @@ readMaterialMatFX(Stream *stream, int32, void *object, int32 offset, int32)
 				tex = Texture::streamRead(stream);
 			}
 			idx = matfx->getEffectIndex(type);
-			assert(idx >= 0);
+			if(idx < 0){
+				// effect type doesn't match header (issue #164), would write fx[-1]
+				if(tex)
+					tex->destroy();
+				RWERROR((ERR_GENERAL, "matfx effect type mismatch"));
+				return nil;
+			}
 			matfx->fx[idx].env.tex = tex;
 			matfx->fx[idx].env.fbAlpha = fbAlpha;
 			matfx->fx[idx].env.coefficient = coefficient;
@@ -478,7 +492,13 @@ readMaterialMatFX(Stream *stream, int32, void *object, int32 offset, int32)
 				tex = Texture::streamRead(stream);
 			}
 			idx = matfx->getEffectIndex(type);
-			assert(idx >= 0);
+			if(idx < 0){
+				// effect type doesn't match header (issue #164), would write fx[-1]
+				if(tex)
+					tex->destroy();
+				RWERROR((ERR_GENERAL, "matfx effect type mismatch"));
+				return nil;
+			}
 			matfx->fx[idx].dual.tex = tex;
 			matfx->fx[idx].dual.srcBlend = srcBlend;
 			matfx->fx[idx].dual.dstBlend = dstBlend;
