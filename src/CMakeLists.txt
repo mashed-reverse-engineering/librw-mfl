@@ -21,6 +21,7 @@ add_library(librw
     plg.cpp
     png.cpp
     prim.cpp
+    ptank.cpp
     raster.cpp
     render.cpp
     rt2d.cpp
@@ -31,6 +32,7 @@ add_library(librw
     rwpipeline.h
     rwplg.h
     rwplugins.h
+    rwptank.h
     rwrender.h
     rwrt2d.h
     rwuserdata.h
@@ -224,6 +226,7 @@ if(LIBRW_INSTALL)
             rwerror.h
             rwplg.h
             rwrender.h
+            rwptank.h
             rwrt2d.h
             rwengine.h
             rwpipeline.h
