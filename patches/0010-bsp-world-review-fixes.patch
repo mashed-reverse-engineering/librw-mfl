@@ -1,0 +1,298 @@
+diff --git a/src/rwobjects.h b/src/rwobjects.h
+--- a/src/rwobjects.h
++++ b/src/rwobjects.h
+@@ -872,8 +872,10 @@
+ 	int32 isLeaf;		// 1
+ 	int32 matIdBase;	// triangle matId + matIdBase indexes World::matList
+ 	int32 numTriangles, numVertices;
+-	BBox bbox;		// bbox.inf <= bbox.sup
+-	int32 collSectorPresent;
++	BBox bbox;		// tight box from the file, bbox.inf <= bbox.sup
++	BBox planeBBox;		// world box cut along the plane path (RpWorldSectorGetBBox semantics)
++	int32 unusedHdr;	// header word 9: garbage in the files, never test it
++	int32 matFX;		// extension 0x120 value: nonzero = MatFX pipeline on the render atomic
+ 	int32 numTexCoordSets;
+ 	V3d *vertices;
+ 	V3d *normals;		// nil unless NORMALS
+diff --git a/src/world.cpp b/src/world.cpp
+--- a/src/world.cpp
++++ b/src/world.cpp
+@@ -9,6 +9,8 @@
+ #include "rwpipeline.h"
+ #include "rwobjects.h"
+ #include "rwengine.h"
++#include "rwanim.h"
++#include "rwplugins.h"
+ 
+ #define PLUGIN_ID ID_WORLD
+ 
+@@ -291,7 +293,7 @@
+ //  PLANESECT { STRUCT(24: type, value, leftIsWorldSector, rightIsWorldSector,
+ //                      leftValue, rightValue), left, right [, EXTENSION] }
+ //  ATOMICSECT { STRUCT(matIdBase, numTriangles, numVertices, inf, sup,
+-//                      collSectorPresent, unused, vertices, [normals int8x4],
++//                      unused, unused, vertices, [normals int8x4],
+ //                      [colors], [uvs per set], triangles {v0,v1,v2,mat}),
+ //               EXTENSION }
+ 
+@@ -304,7 +306,23 @@
+ 
+ static const uint32 SECTORHDR = 44;
+ 
+-static bool readNode(Stream *stream, BspReadCtx *ctx, BspNode **slot, int32 depth);
++// findChunk that also rejects chunk versions the original does not accept
++static bool
++findChunkV(Stream *stream, uint32 type, uint32 *length, uint32 *version)
++{
++	uint32 v;
++	if(!findChunk(stream, type, length, &v))
++		return false;
++	if(v < 0x35000 || v > 0x37002){
++		RWERROR((ERR_GENERAL, "unsupported chunk version"));
++		return false;
++	}
++	if(version)
++		*version = v;
++	return true;
++}
++
++static bool readNode(Stream *stream, BspReadCtx *ctx, BspNode **slot, int32 depth, bool isSector);
+ 
+ static bool
+ readSectorExtension(Stream *stream, WorldSector *sec, int32 length)
+@@ -320,6 +338,9 @@
+ 			sec->collision = rwNewT(uint8, h.length, MEMDUR_EVENT | ID_WORLD);
+ 			sec->collisionSize = h.length;
+ 			stream->read8(sec->collision, h.length);
++		}else if(h.type == 0x120 && h.length >= 4){
++			sec->matFX = stream->readI32();
++			stream->seek(h.length-4);
+ 		}else
+ 			stream->seek(h.length);
+ 		length -= h.length;
+@@ -332,7 +353,8 @@
+ {
+ 	World *world = ctx->world;
+ 	uint32 length;
+-	if(!findChunk(stream, ID_STRUCT, &length, nil)){
++	uint32 sver;
++	if(!findChunkV(stream, ID_STRUCT, &length, &sver)){
+ 		RWERROR((ERR_CHUNK, "STRUCT"));
+ 		return false;
+ 	}
+@@ -356,7 +378,7 @@
+ 	memcpy(box, &hdr[3], sizeof(box));
+ 	sec->bbox.inf.set(box[0], box[1], box[2]);
+ 	sec->bbox.sup.set(box[3], box[4], box[5]);
+-	sec->collSectorPresent = hdr[9];	// hdr[10] is unused
++	sec->unusedHdr = hdr[9];	// hdr[10] is unused too
+ 
+ 	uint32 fmt = world->format;
+ 	if(fmt & Geometry::NATIVE){
+@@ -390,7 +412,7 @@
+ 			stream->read8(tmp, 4*nv);
+ 			sec->normals = rwNewT(V3d, nv, MEMDUR_EVENT | ID_WORLD);
+ 			for(int32 i = 0; i < nv; i++)
+-				sec->normals[i].set(tmp[4*i]/127.0f, tmp[4*i+1]/127.0f, tmp[4*i+2]/127.0f);
++				sec->normals[i].set(tmp[4*i]/128.0f, tmp[4*i+1]/128.0f, tmp[4*i+2]/128.0f);
+ 			rwFree(tmp);
+ 		}
+ 		if(fmt & Geometry::PRELIT){
+@@ -406,6 +428,12 @@
+ 		sec->triangles = rwNewT(Triangle, nt, MEMDUR_EVENT | ID_WORLD);
+ 		// BSP word order is {v0, v1, v2, material}, which is what Triangle holds
+ 		stream->read16(sec->triangles, 8*nt);
++		if(sver < 0x36002)	// old files store {mat, v0, v1, v2}
++			for(int32 i = 0; i < nt; i++){
++				uint16 *w = (uint16*)&sec->triangles[i];
++				uint16 m = w[0];
++				w[0] = w[1]; w[1] = w[2]; w[2] = w[3]; w[3] = m;
++			}
+ 		for(int32 i = 0; i < nt; i++){
+ 			Triangle *t = &sec->triangles[i];
+ 			int32 m = sec->matIdBase + t->matId;
+@@ -418,7 +446,7 @@
+ 	}
+ 	// extension: collision tree (kept raw), everything else skipped
+ 	uint32 extLen;
+-	if(!findChunk(stream, ID_EXTENSION, &extLen, nil)){
++	if(!findChunkV(stream, ID_EXTENSION, &extLen, nil)){
+ 		RWERROR((ERR_CHUNK, "EXTENSION"));
+ 		return false;
+ 	}
+@@ -432,7 +460,7 @@
+ readPlaneSector(Stream *stream, BspReadCtx *ctx, BspNode **slot, int32 depth)
+ {
+ 	uint32 length;
+-	if(!findChunk(stream, ID_STRUCT, &length, nil) || length != 24){
++	if(!findChunkV(stream, ID_STRUCT, &length, nil) || length != 24){
+ 		RWERROR((ERR_CHUNK, "STRUCT"));
+ 		return false;
+ 	}
+@@ -448,30 +476,44 @@
+ 	stream->read32(buf, 24);
+ 	p->type = buf[0];
+ 	memcpy(&p->value, &buf[1], 4);
+-	memcpy(&p->leftValue, &buf[4], 4);
+-	memcpy(&p->rightValue, &buf[5], 4);
+-	// buf[2], buf[3]: whether the children are atomic sectors; the child
+-	// chunk header tells the same, so they are not needed.
+-	return readNode(stream, ctx, &p->left, depth+1) &&
+-	       readNode(stream, ctx, &p->right, depth+1);
++	if(p->type != 0 && p->type != 4 && p->type != 8){
++		RWERROR((ERR_GENERAL, "bad plane type"));
++		return false;
++	}
++	if(ctx->world->format & 0x40000000){	// sectors overlap
++		memcpy(&p->leftValue, &buf[4], 4);
++		memcpy(&p->rightValue, &buf[5], 4);
++	}else
++		p->leftValue = p->rightValue = p->value;
++	// buf[2], buf[3] select the child chunk kind; other chunks in between are skipped
++	return readNode(stream, ctx, &p->left, depth+1, buf[2] != 0) &&
++	       readNode(stream, ctx, &p->right, depth+1, buf[3] != 0);
+ }
+ 
+ static bool
+-readNode(Stream *stream, BspReadCtx *ctx, BspNode **slot, int32 depth)
++readNode(Stream *stream, BspReadCtx *ctx, BspNode **slot, int32 depth, bool isSector)
+ {
+ 	ChunkHeaderInfo h;
+-	if(depth > 512 || !readChunkHeaderInfo(stream, &h))
++	if(depth > 512)
+ 		return false;
++	// like the original: find the wanted chunk kind, skipping anything else
++	uint32 want = isSector ? ID_ATOMICSECTOR : ID_PLANESECTOR;
++	do{
++		if(!readChunkHeaderInfo(stream, &h) || h.type == ID_NAOBJECT)
++			return false;
++		if(h.type != want)
++			stream->seek(h.length);
++	}while(h.type != want);
++	if(h.version < 0x35000 || h.version > 0x37002){
++		RWERROR((ERR_GENERAL, "unsupported chunk version"));
++		return false;
++	}
+ 	uint32 end = stream->tell() + h.length;
+ 	bool ok;
+-	if(h.type == ID_ATOMICSECTOR)
++	if(isSector)
+ 		ok = readAtomicSector(stream, ctx, slot, end);
+-	else if(h.type == ID_PLANESECTOR)
++	else
+ 		ok = readPlaneSector(stream, ctx, slot, depth);
+-	else{
+-		RWERROR((ERR_GENERAL, "unexpected chunk in world sector tree"));
+-		return false;
+-	}
+ 	if(!ok)
+ 		return false;
+ 	// skip anything we did not consume (e.g. a plane sector extension)
+@@ -483,11 +525,28 @@
+ 	return true;
+ }
+ 
++// plane box of every sector: world box cut along the plane path
++static void
++setPlaneBoxes(BspNode *n, BBox box)
++{
++	if(n->isLeaf){
++		((WorldSector*)n)->planeBBox = box;
++		return;
++	}
++	PlaneSector *p = (PlaneSector*)n;
++	int32 a = p->type/4;
++	BBox l = box, r = box;
++	(&l.sup.x)[a] = p->leftValue;
++	(&r.inf.x)[a] = p->rightValue;
++	setPlaneBoxes(p->left, l);
++	setPlaneBoxes(p->right, r);
++}
++
+ World*
+ World::streamRead(Stream *stream)
+ {
+ 	uint32 length;
+-	if(!findChunk(stream, ID_STRUCT, &length, nil)){
++	if(!findChunkV(stream, ID_STRUCT, &length, nil)){
+ 		RWERROR((ERR_CHUNK, "STRUCT"));
+ 		return nil;
+ 	}
+@@ -501,7 +560,7 @@
+ 	memcpy(f, b, sizeof(f));
+ 	// rootIsWorldSector, invOrigin[3], numTri, numVert, numPlane, numAtomic,
+ 	// colSectorSize, format, bbox[6]
+-	if(b[4] < 0 || b[5] < 0 || b[6] < 0 || b[7] < 0 || b[7] > 0x100000 || b[6] > 0x100000){
++	if(b[8] > 0 || b[4] < 0 || b[5] < 0 || b[6] < 0 || b[7] < 0 || b[7] > 0x100000 || b[6] > 0x100000){
+ 		RWERROR((ERR_GENERAL, "bad world counts"));
+ 		return nil;
+ 	}
+@@ -523,7 +582,7 @@
+ 	for(int32 i = 0; i < world->numSectors; i++)
+ 		world->sectors[i] = nil;
+ 
+-	if(!findChunk(stream, ID_MATLIST, nil, nil)){
++	if(!findChunkV(stream, ID_MATLIST, nil, nil)){
+ 		RWERROR((ERR_CHUNK, "MATLIST"));
+ 		goto fail;
+ 	}
+@@ -534,7 +593,7 @@
+ 	ctx.world = world;
+ 	ctx.planesLeft = world->numPlaneSectors;
+ 	ctx.sectorsRead = 0;
+-	if(!readNode(stream, &ctx, &world->root, 0))
++	if(!readNode(stream, &ctx, &world->root, 0, b[0] != 0))
+ 		goto fail;
+ 	if(ctx.sectorsRead != world->numSectors || ctx.planesLeft != 0){
+ 		RWERROR((ERR_GENERAL, "sector counts differ from world header"));
+@@ -542,6 +601,7 @@
+ 	}
+ 	if(!s_plglist.streamRead(stream, world))
+ 		goto fail;
++	setPlaneBoxes(world->root, world->bbox);
+ 	return world;
+ fail:
+ 	// sectors not read stay nil; destroyNode only walks the tree
+@@ -608,13 +668,15 @@
+ 		a->setFrame(Frame::create());
+ 		a->setGeometry(g, 0);
+ 		g->destroy();	// atomic now owns the only reference
++		if(this->matFX)
++			MatFX::enableEffects(a);
+ 		this->atomic = a;
+ 	}
+ 	this->atomic->render();
+ }
+ 
+ static void
+-renderNode(BspNode *n, Camera *cam)
++renderNode(BspNode *n, Camera *cam, const V3d *eye)
+ {
+ 	if(n == nil)
+ 		return;
+@@ -629,16 +691,22 @@
+ 			return;
+ 		s->render();
+ 	}else{
++		// back to front: the child on the far side of the plane first
+ 		PlaneSector *p = (PlaneSector*)n;
+-		renderNode(p->left, cam);
+-		renderNode(p->right, cam);
++		bool eyeLeft = eye && (&eye->x)[p->type/4] < p->value;
++		renderNode(eyeLeft ? p->right : p->left, cam, eye);
++		renderNode(eyeLeft ? p->left : p->right, cam, eye);
+ 	}
+ }
+ 
+ void
+ World::renderSectors(Camera *cam)
+ {
+-	renderNode(this->root, cam);
++	V3d eye;
++	bool haveEye = cam && cam->getFrame();
++	if(haveEye)
++		eye = cam->getFrame()->getLTM()->pos;
++	renderNode(this->root, cam, haveEye ? &eye : nil);
+ }
+ 
+ }

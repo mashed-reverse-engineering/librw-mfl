@@ -1,0 +1,65 @@
+From 18532c2e13efbc1aa43f0b00b4459831f9414de0 Mon Sep 17 00:00:00 2001
+From: SciLor <scilor@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 12:00:00 +0000
+Subject: [PATCH] matfx: don't write fx[-1] on effect type mismatch
+
+Replace the assert in readMaterialMatFX with a destroy-and-fail path (aap/librw issue #164).
+
+Upstream-ref: https://github.com/aap/librw/issues/164
+---
+ src/matfx.cpp | 26 +++++++++++++++++++++++---
+ 1 file changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/src/matfx.cpp b/src/matfx.cpp
+index c143fc1..4772583 100644
+--- a/src/matfx.cpp
++++ b/src/matfx.cpp
+@@ -440,7 +440,15 @@ readMaterialMatFX(Stream *stream, int32, void *object, int32 offset, int32)
+ 				tex = Texture::streamRead(stream);
+ 			}
+ 			idx = matfx->getEffectIndex(type);
+-			assert(idx >= 0);
++			if(idx < 0){
++				// effect type doesn't match header (issue #164), would write fx[-1]
++				if(bumpedTex)
++					bumpedTex->destroy();
++				if(tex)
++					tex->destroy();
++				RWERROR((ERR_GENERAL, "matfx effect type mismatch"));
++				return nil;
++			}
+ 			matfx->fx[idx].bump.bumpedTex = bumpedTex;
+ 			matfx->fx[idx].bump.tex = tex;
+ 			matfx->fx[idx].bump.coefficient = coefficient;
+@@ -459,7 +467,13 @@ readMaterialMatFX(Stream *stream, int32, void *object, int32 offset, int32)
+ 				tex = Texture::streamRead(stream);
+ 			}
+ 			idx = matfx->getEffectIndex(type);
+-			assert(idx >= 0);
++			if(idx < 0){
++				// effect type doesn't match header (issue #164), would write fx[-1]
++				if(tex)
++					tex->destroy();
++				RWERROR((ERR_GENERAL, "matfx effect type mismatch"));
++				return nil;
++			}
+ 			matfx->fx[idx].env.tex = tex;
+ 			matfx->fx[idx].env.fbAlpha = fbAlpha;
+ 			matfx->fx[idx].env.coefficient = coefficient;
+@@ -478,7 +492,13 @@ readMaterialMatFX(Stream *stream, int32, void *object, int32 offset, int32)
+ 				tex = Texture::streamRead(stream);
+ 			}
+ 			idx = matfx->getEffectIndex(type);
+-			assert(idx >= 0);
++			if(idx < 0){
++				// effect type doesn't match header (issue #164), would write fx[-1]
++				if(tex)
++					tex->destroy();
++				RWERROR((ERR_GENERAL, "matfx effect type mismatch"));
++				return nil;
++			}
+ 			matfx->fx[idx].dual.tex = tex;
+ 			matfx->fx[idx].dual.srcBlend = srcBlend;
+ 			matfx->fx[idx].dual.dstBlend = dstBlend;
+-- 
+2.43.0

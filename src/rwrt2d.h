@@ -55,7 +55,7 @@ struct Path
 	void empty(void);
 	void moveto(float32 x, float32 y);
 	void lineto(float32 x, float32 y);
-	void curveto(float32 x1, float32 y1, float32 x2, float32 y2, float32 x3, float32 y3);	// cubic, flattened into 16 segments
+	void curveto(float32 x1, float32 y1, float32 x2, float32 y2, float32 x3, float32 y3);	// cubic, flattened adaptively (<= 7 levels, half pixel tolerance)
 	void close(void);
 	// bbox as {x, y, w, h}, i.e. {minX, minY, maxX-minX, maxY-minY}; all zero for an empty path
 	void getBBox(float32 *xywh) const;
@@ -65,7 +65,7 @@ struct Path
 // Rt2d space: origin bottom-left of the view window, y up, one unit = min(viewW, viewH) where viewW/H = 2*camera->viewWindow.
 // (so a 4:3 view is 1.333 x 1.0 units; ui_2d_begin reads exactly that rectangle back with Rt2dDeviceGetClippath).
 void deviceSetView(float32 viewW, float32 viewH, int32 rasterW, int32 rasterH);	// camera-less variant (tests)
-bool32 deviceSetCamera(Camera *cam);	// Rt2dDeviceSetCamera; nil clears. false if cam has no frame buffer
+bool32 deviceSetCamera(Camera *cam);	// Rt2dDeviceSetCamera; nil clears and returns false (like the game); false, camera unchanged, if cam has no frame buffer
 // Screen pixel position of a point in device space, i.e. a Rt2d point that already went through the CTM
 void deviceToScreen(float32 x, float32 y, float32 *sx, float32 *sy);
 // Clip path = the visible rectangle in current CTM space (Rt2dDeviceGetClippath): 4 corners, closed
@@ -121,7 +121,7 @@ struct Font
 void fontTexDictionarySet(TexDictionary *dict);
 
 // ---- Output. Every glyph is turned into 4 screen vertices (TL, BL, TR, BR ordering is {bottom-left, top-left, bottom-right,
-// top-right} of the glyph) and batched (<= 63 quads, one texture per batch). The default sink draws through Im2D
+// top-right} of the glyph) and batched (<= 64 quads, one texture per batch). The default sink draws through Im2D
 // (only when built with a render platform); tests install their own.
 struct Vertex { float32 x, y, u, v; uint8 r, g, b, a; };
 typedef void (*QuadSink)(void *user, Texture *tex, const Vertex *quads /* 4 per quad */, int32 numQuads);

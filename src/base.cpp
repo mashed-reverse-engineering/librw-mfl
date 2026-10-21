@@ -702,13 +702,12 @@ correctPathCase(char *filename)
 	}
 	while((dir = strtok(arg, PSEP_S))){
 		arg = nil;
-		direct = opendir(sofar);
-		if(direct == nil)
+		if(direct = opendir(sofar), dir == nil)
 			return;
 		while(dirent = readdir(direct), dirent != nil)
 			if(strncmp_ci(dirent->d_name, dir, 1024) == 0){
-				strncat(sofar, PSEP_S, sizeof(sofar)-strlen(sofar)-1);
-				strncat(sofar, dirent->d_name, sizeof(sofar)-strlen(sofar)-1);
+				strncat(sofar, PSEP_S, 1024);
+				strncat(sofar, dirent->d_name, 1024);
 				break;
 			}
 		closedir(direct);
@@ -955,12 +954,13 @@ StreamMemory::write8(const void *data, uint32 len)
 	if(this->eof())
 		return 0;
 	uint32 l = len;
-	if(this->position+l > this->length){
-		if(this->position+l > this->capacity)
+	if(l > this->length-this->position){
+		if(l > this->capacity-this->position)
 			l = this->capacity-this->position;
 		this->length = this->position+l;
 	}
-	memcpy(&this->data[this->position], data, l);
+	if(l)	// data may be nil for an empty buffer
+		memcpy(&this->data[this->position], data, l);
 	this->position += l;
 	if(len != l)
 		this->position = S_EOF;
@@ -973,9 +973,10 @@ StreamMemory::read8(void *data, uint32 len)
 	if(this->eof())
 		return 0;
 	uint32 l = len;
-	if(this->position+l > this->length)
+	if(l > this->length-this->position)
 		l = this->length-this->position;
-	memcpy(data, &this->data[this->position], l);
+	if(l)
+		memcpy(data, &this->data[this->position], l);
 	this->position += l;
 	if(len != l)
 		this->position = S_EOF;

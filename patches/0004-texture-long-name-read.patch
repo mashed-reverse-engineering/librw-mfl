@@ -1,0 +1,63 @@
+From 18532c2e13efbc1aa43f0b00b4459831f9414de0 Mon Sep 17 00:00:00 2001
+From: SciLor <scilor@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 12:00:00 +0000
+Subject: [PATCH] texture: handle long texture/mask names when reading
+
+Author: SR_team (sr-tream/librw a570a41, de07e9d). MIT.
+
+Upstream-ref: https://github.com/sr-tream/librw/commit/a570a41 and https://github.com/sr-tream/librw/commit/de07e9d
+---
+ src/base.err    |  4 +++-
+ src/texture.cpp | 18 ++++++++++++++++++
+ 2 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/src/base.err b/src/base.err
+index 2d413e8..5fa0309 100644
+--- a/src/base.err
++++ b/src/base.err
+@@ -21,4 +21,6 @@ ECODE(ERR_INVRASTER,
+ ECODE(ERR_NOTEXTURE,
+       "Could not create texture"),
+ ECODE(ERR_FORMAT_UNSUPPORTED,
+-      "Unsupported raster format")
++      "Unsupported raster format"),
++ECODE(ERR_TEX_NAME,
++      "Texture length to long: %s"),
+diff --git a/src/texture.cpp b/src/texture.cpp
+index 961649e..8fd9837 100644
+--- a/src/texture.cpp
++++ b/src/texture.cpp
+@@ -383,13 +383,31 @@ Texture::streamRead(Stream *stream)
+ 		RWERROR((ERR_CHUNK, "STRING"));
+ 		return nil;
+ 	}
++	if(length > sizeof(name) / sizeof(decltype(name[0]))) {
++		RWERROR((ERR_GENERAL, "texture name length too long"));
++		return nil;
++	}
+ 	stream->read8(name, length);
++	constexpr auto max_name_len = sizeof(Texture::name) / sizeof(Texture::name[0]);
++	if(length >= max_name_len) {
++		RWERROR((ERR_TEX_NAME, name));
++		name[max_name_len - 1] = '\0';
++	}
+ 
+ 	if(!findChunk(stream, ID_STRING, &length, nil)){
+ 		RWERROR((ERR_CHUNK, "STRING"));
+ 		return nil;
+ 	}
++	if(length > sizeof(mask) / sizeof(decltype(mask[0]))) {
++		RWERROR((ERR_GENERAL, "texture mask length too long"));
++		return nil;
++	}
+ 	stream->read8(mask, length);
++	constexpr auto max_mask_len = sizeof(Texture::mask) / sizeof(Texture::mask[0]);
++	if(length >= max_mask_len) {
++		RWERROR((ERR_TEX_NAME, mask));
++		mask[max_mask_len - 1] = '\0';
++	}
+ 
+ 	bool32 mipState = getMipmapping();
+ 	bool32 autoMipState = getAutoMipmapping();
+-- 
+2.43.0

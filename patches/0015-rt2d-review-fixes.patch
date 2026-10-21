@@ -1,0 +1,956 @@
+Subject: [PATCH] Rt2d review fixes (delta on top of 0012)
+
+F1 gradient truncation, F2 float-per-op widths, F3 show accumulation order, F4 SetCamera nil/failure, F5 Im2D sink states,
+F6 Path::close, F7 adaptive curve flattening, F8 texture read fallback + default font dictionary, F10 header comment,
+F11 StreamMemory::read8/write8. Adds tests/diff_rt2d differential harness. See MFL_NOTES.md "Rt2d review".
+---
+diff -ruN a/src/base.cpp b/src/base.cpp
+--- a/src/base.cpp
++++ b/src/base.cpp
+@@ -954,12 +954,13 @@
+ 	if(this->eof())
+ 		return 0;
+ 	uint32 l = len;
+-	if(this->position+l > this->length){
+-		if(this->position+l > this->capacity)
++	if(l > this->length-this->position){
++		if(l > this->capacity-this->position)
+ 			l = this->capacity-this->position;
+ 		this->length = this->position+l;
+ 	}
+-	memcpy(&this->data[this->position], data, l);
++	if(l)	// data may be nil for an empty buffer
++		memcpy(&this->data[this->position], data, l);
+ 	this->position += l;
+ 	if(len != l)
+ 		this->position = S_EOF;
+@@ -972,9 +973,10 @@
+ 	if(this->eof())
+ 		return 0;
+ 	uint32 l = len;
+-	if(this->position+l > this->length)
++	if(l > this->length-this->position)
+ 		l = this->length-this->position;
+-	memcpy(data, &this->data[this->position], l);
++	if(l)
++		memcpy(data, &this->data[this->position], l);
+ 	this->position += l;
+ 	if(len != l)
+ 		this->position = S_EOF;
+diff -ruN a/src/rt2d.cpp b/src/rt2d.cpp
+--- a/src/rt2d.cpp
++++ b/src/rt2d.cpp
+@@ -38,6 +38,7 @@
+ static Affine ctm[CTMDEPTH];
+ static int32 ctmTop;
+ static TexDictionary *fontDict;
++static TexDictionary *ownDict;	// default font dictionary created by open() (Rt2dOpen does the same)
+ static float32 viewW = 2.0f, viewH = 1.5f;	// GUESS: default 4:3 view until a camera is set
+ static int32 rasterW = 640, rasterH = 480;
+ static Camera *devCamera;
+@@ -47,6 +48,7 @@
+ static int32 batchQuads;
+ static Texture *batchTex;
+ 
++static float32 unit(void) { return viewH < viewW ? viewH : viewW; }
+ static Affine identity(void) { Affine a = { 1, 0, 0, 1, 0, 0 }; return a; }
+ 
+ // result = m * t (t applied first)
+@@ -75,7 +77,8 @@
+ {
+ 	ctmTop = 0;
+ 	ctm[0] = identity();
+-	fontDict = nil;
++	if(ownDict) ownDict->destroy();
++	ownDict = fontDict = TexDictionary::create();
+ 	devCamera = nil;
+ 	viewW = 2.0f; viewH = 1.5f; rasterW = 640; rasterH = 480;
+ 	batchQuads = 0; batchTex = nil;
+@@ -87,11 +90,16 @@
+ {
+ 	ctmTop = 0;
+ 	ctm[0] = identity();
+-	fontDict = nil;
++	if(ownDict) ownDict->destroy();
++	ownDict = fontDict = nil;
+ 	devCamera = nil;
+ 	batchQuads = 0; batchTex = nil;
+ }
+ 
++// The game runs with x87 precision control = 24 bit (D3D9 device without FPU_PRESERVE): every Rt2d add/mul rounds to float.
++// fr() forces that rounding on any target (a no-op on SSE2).
++static inline float32 fr(float32 x) { volatile float32 v = x; return v; }
++
+ // ---------------------------------------------------------------- CTM
+ void ctmSetIdentity(void) { ctm[ctmTop] = identity(); }
+ 
+@@ -222,24 +230,52 @@
+ 	subAdd(&subs[numSubs-1], x, y);
+ }
+ 
++// Adaptive midpoint subdivision, at most 7 levels (game: 0x563e70). Flat = both control points closer to the chord p0-p3
++// than sqrt(tol); the chord end is then emitted.
++static void
++flatten(Path::Sub *s, float32 tol, const float32 *p, int depth)
++{
++	float32 ex = p[6]-p[0], ey = p[7]-p[1], l2 = ex*ex + ey*ey;
++	bool flat = true;
++	for(int k = 1; k <= 2; k++){
++		float32 dx = p[2*k]-p[0], dy = p[2*k+1]-p[1], dot = dx*ex + dy*ey;
++		if(!((dx*dx + dy*dy - tol)*l2 < dot*dot)) flat = false;
++	}
++	if(flat || depth >= 7){ subAdd(s, p[6], p[7]); return; }
++	float32 a[2], b[2], c[2], ab[2], bc[2], m[2], l[8], r[8];
++	for(int k = 0; k < 2; k++){
++		a[k] = (p[k]+p[2+k])*0.5f; b[k] = (p[2+k]+p[4+k])*0.5f; c[k] = (p[4+k]+p[6+k])*0.5f;
++		ab[k] = (a[k]+b[k])*0.5f; bc[k] = (b[k]+c[k])*0.5f; m[k] = (ab[k]+bc[k])*0.5f;
++		l[k] = p[k]; l[2+k] = a[k]; l[4+k] = ab[k]; l[6+k] = m[k];
++		r[k] = m[k]; r[2+k] = bc[k]; r[4+k] = c[k]; r[6+k] = p[6+k];
++	}
++	flatten(s, tol, l, depth+1);
++	flatten(s, tol, r, depth+1);
++}
++
+ void
+ Path::curveto(float32 x1, float32 y1, float32 x2, float32 y2, float32 x3, float32 y3)
+ {
+ 	if(numSubs == 0) moveto(x1, y1);
+ 	Sub *s = &subs[numSubs-1];
+-	float32 x0 = s->xy[2*s->n-2], y0 = s->xy[2*s->n-1];
+-	for(int i = 1; i <= 16; i++){	// GUESS: fixed 16 segments instead of the game's tolerance based flattening
+-		float32 t = i/16.0f, u = 1-t;
+-		subAdd(s, u*u*u*x0 + 3*u*u*t*x1 + 3*u*t*t*x2 + t*t*t*x3,
+-		          u*u*u*y0 + 3*u*u*t*y1 + 3*u*t*t*y2 + t*t*t*y3);
+-		s = &subs[numSubs-1];
+-	}
++	float32 p[8] = { s->xy[2*s->n-2], s->xy[2*s->n-1], x1, y1, x2, y2, x3, y3 };
++	// tol = squared length of half a device pixel mapped into CTM space (inverse of the CTM's linear part)
++	float32 m = unit(), px = 0.5f*viewW/rasterW/m;
++	Affine t = ctm[ctmTop];
++	float32 det = t.a*t.d - t.b*t.c;
++	if(fabsf(det) < 1e-20f) t = identity(), det = 1;	// GUESS: singular CTM -> identity
++	float32 vx = (t.d*px)/det, vy = (-t.b*px)/det;
++	flatten(s, vx*vx + vy*vy, p, 0);
+ }
+ 
+ void
+ Path::close(void)
+ {
+-	if(numSubs) subs[numSubs-1].closed = 1;
++	if(numSubs == 0) return;
++	Sub *s = &subs[numSubs-1];
++	// the game appends a closing lineto when the last point differs from the first
++	if(s->n > 0 && (s->xy[2*s->n-2] != s->xy[0] || s->xy[2*s->n-1] != s->xy[1])) subAdd(s, s->xy[0], s->xy[1]);
++	s->closed = 1;
+ }
+ 
+ void
+@@ -269,17 +305,15 @@
+ bool32
+ deviceSetCamera(Camera *cam)
+ {
++	if(cam == nil){ devCamera = nil; return 0; }	// the game clears the camera and returns 0
++	if(cam->frameBuffer == nil) return 0;	// ... and keeps the previous camera
+ 	devCamera = cam;
+-	if(cam == nil) return 1;
+-	if(cam->frameBuffer == nil) return 0;
+ 	// the game stores 2*viewWindow as the extent and the frame buffer size as raster size
+ 	deviceSetView(cam->viewWindow.x*2, cam->viewWindow.y*2, cam->frameBuffer->width, cam->frameBuffer->height);
+ 	// DEVIATION: the game also replaces the camera's frame-sync callback (0x563120); not needed here
+ 	return 1;
+ }
+ 
+-static float32 unit(void) { return viewH < viewW ? viewH : viewW; }
+-
+ void
+ deviceToScreen(float32 x, float32 y, float32 *sx, float32 *sy)
+ {
+@@ -399,7 +433,14 @@
+ 	// textures are looked up in the font texture dictionary (Rt2dFontTexDictionarySet)
+ 	for(i = 0; i < n; i++){
+ 		Texture *t = fontDict ? fontDict->find(f->texNames[i]) : nil;
+-		if(t){ t->addRef(); f->tex[i] = t; }
++		if(t) t->addRef();
++		else if(requireTextures){	// the game: dictionary hit, else the normal texture read path (disk) with the dictionary current
++			TexDictionary *cur = TexDictionary::getCurrent();
++			if(fontDict) TexDictionary::setCurrent(fontDict);
++			t = Texture::read(f->texNames[i], nil);
++			TexDictionary::setCurrent(cur);
++		}
++		f->tex[i] = t;
+ 		if(requireTextures && (t == nil || t->raster == nil)) FAIL("RWF: texture '%s' not found", f->texNames[i]);
+ 	}
+ #undef FAIL
+@@ -454,12 +495,12 @@
+ static float32
+ spanWidth(const Font *f, const uint32 *c, size_t from, size_t to)
+ {
+-	double w = 0.0;
++	float32 w = 0.0f;	// float per operation like the game: w = (advance + intergap) + w
+ 	for(size_t i = from; i < to && c[i]; i++){
+ 		int32 g = f->glyphIndex(c[i]);
+-		if(g >= 0) w = (double)f->glyphs[g].advance + f->intergap + w;
++		if(g >= 0) w = fr(fr(f->glyphs[g].advance + f->intergap) + w);
+ 	}
+-	return (float32)w;
++	return w;
+ }
+ 
+ float32
+@@ -503,11 +544,17 @@
+ 	rw::SetRenderState(rw::TEXTUREFILTER, tex->filterAddressing & 0xFF);
+ 	uint32 cull = rw::GetRenderState(rw::CULLMODE);
+ 	uint32 ztest = rw::GetRenderState(rw::ZTESTENABLE);
++	uint32 zwrite = rw::GetRenderState(rw::ZWRITEENABLE);
++	uint32 valpha = rw::GetRenderState(rw::VERTEXALPHA);
+ 	rw::SetRenderState(rw::CULLMODE, rw::CULLNONE);	// GUESS: the game relies on whatever state its caller set up
+-	rw::SetRenderState(rw::ZTESTENABLE, 0);
++	rw::SetRenderState(rw::ZTESTENABLE, 0);	// the game's callers disable both around HUD/menu text
++	rw::SetRenderState(rw::ZWRITEENABLE, 0);
++	rw::SetRenderState(rw::VERTEXALPHA, 1);	// the game's Im3D path blends vertex alpha (no ALLOPAQUE)
+ 	im2d::RenderIndexedPrimitive(rw::PRIMTYPETRILIST, verts, nq*4, idx, nq*6);
+ 	rw::SetRenderState(rw::CULLMODE, cull);
+ 	rw::SetRenderState(rw::ZTESTENABLE, ztest);
++	rw::SetRenderState(rw::ZWRITEENABLE, zwrite);
++	rw::SetRenderState(rw::VERTEXALPHA, valpha);
+ }
+ #endif
+ 
+@@ -528,7 +575,9 @@
+ static uint8
+ lerpc(uint8 a, uint8 b, float32 t)
+ {
+-	return (uint8)((int32)lrintf((float32)a + ((float32)b - (float32)a)*t) & 0xFF);
++	// the game converts with fistp under RC=chop: truncation, one float rounding per operation
++	float32 d = fr(fr((float32)b - (float32)a)*t);
++	return (uint8)((int32)fr((float32)a + d) & 0xFF);
+ }
+ 
+ static void
+@@ -551,7 +600,8 @@
+ 		if(batchQuads && (tex != batchTex || batchQuads >= MAXBATCH)) flushBatch();
+ 		batchTex = tex;
+ 		Vertex *v = &batch[batchQuads*4];
+-		float32 xs[2] = { acc, acc + g->advance }, ts[2] = { acc*invW, (acc + g->advance)*invW };
++		float32 xr = fr(acc + g->advance);
++		float32 xs[2] = { acc, xr }, ts[2] = { fr(acc*invW), fr(xr*invW) };
+ 		for(int k = 0; k < 4; k++){	// 0=BL 1=TL 2=BR 3=TR
+ 			int right = k >> 1, top = k & 1;
+ 			float32 px, py;
+@@ -569,10 +619,10 @@
+ 			}
+ 		}
+ 		batchQuads++;
+-		acc += f->intergap + g->advance;
++		acc = fr(fr(acc + f->intergap) + g->advance);
+ 	}
+ 	flushBatch();
+-	pos->x += acc*height;
++	pos->x = fr(fr(acc*height) + pos->x);
+ 	ctmPop();
+ }
+ 
+@@ -615,7 +665,7 @@
+ 			first = true;
+ 			if(ch == 10){ brk = cur+1; lastW = w; }
+ 		}
+-		if(g >= 0) w = (float32)((double)f->glyphs[g].advance + f->intergap + w);
++		if(g >= 0) w = fr(fr(f->glyphs[g].advance + f->intergap) + w);
+ 		if(lineW < w || ch == 10){
+ 			pos.x = (lineW - lastW)*align + rect[0]; pos.y = ly;
+ 			if(lines) (*lines)++;
+diff -ruN a/src/rwrt2d.h b/src/rwrt2d.h
+--- a/src/rwrt2d.h
++++ b/src/rwrt2d.h
+@@ -55,7 +55,7 @@
+ 	void empty(void);
+ 	void moveto(float32 x, float32 y);
+ 	void lineto(float32 x, float32 y);
+-	void curveto(float32 x1, float32 y1, float32 x2, float32 y2, float32 x3, float32 y3);	// cubic, flattened into 16 segments
++	void curveto(float32 x1, float32 y1, float32 x2, float32 y2, float32 x3, float32 y3);	// cubic, flattened adaptively (<= 7 levels, half pixel tolerance)
+ 	void close(void);
+ 	// bbox as {x, y, w, h}, i.e. {minX, minY, maxX-minX, maxY-minY}; all zero for an empty path
+ 	void getBBox(float32 *xywh) const;
+@@ -65,7 +65,7 @@
+ // Rt2d space: origin bottom-left of the view window, y up, one unit = min(viewW, viewH) where viewW/H = 2*camera->viewWindow.
+ // (so a 4:3 view is 1.333 x 1.0 units; ui_2d_begin reads exactly that rectangle back with Rt2dDeviceGetClippath).
+ void deviceSetView(float32 viewW, float32 viewH, int32 rasterW, int32 rasterH);	// camera-less variant (tests)
+-bool32 deviceSetCamera(Camera *cam);	// Rt2dDeviceSetCamera; nil clears. false if cam has no frame buffer
++bool32 deviceSetCamera(Camera *cam);	// Rt2dDeviceSetCamera; nil clears and returns false (like the game); false, camera unchanged, if cam has no frame buffer
+ // Screen pixel position of a point in device space, i.e. a Rt2d point that already went through the CTM
+ void deviceToScreen(float32 x, float32 y, float32 *sx, float32 *sy);
+ // Clip path = the visible rectangle in current CTM space (Rt2dDeviceGetClippath): 4 corners, closed
+@@ -121,7 +121,7 @@
+ void fontTexDictionarySet(TexDictionary *dict);
+ 
+ // ---- Output. Every glyph is turned into 4 screen vertices (TL, BL, TR, BR ordering is {bottom-left, top-left, bottom-right,
+-// top-right} of the glyph) and batched (<= 63 quads, one texture per batch). The default sink draws through Im2D
++// top-right} of the glyph) and batched (<= 64 quads, one texture per batch). The default sink draws through Im2D
+ // (only when built with a render platform); tests install their own.
+ struct Vertex { float32 x, y, u, v; uint8 r, g, b, a; };
+ typedef void (*QuadSink)(void *user, Texture *tex, const Vertex *quads /* 4 per quad */, int32 numQuads);
+diff -ruN a/tests/diff_rt2d/cmp.py b/tests/diff_rt2d/cmp.py
+--- a/tests/diff_rt2d/cmp.py
++++ b/tests/diff_rt2d/cmp.py
+@@ -0,0 +1,24 @@
++#!/usr/bin/env python3
++# usage: cmp.py lib orig -> counts of differing records by kind; V positions compared with 0.01 px tolerance
++import sys, collections
++a = open(sys.argv[1]).read().split('\n'); b = open(sys.argv[2]).read().split('\n')
++if len(a) != len(b): print("LINECOUNT", len(a), len(b))
++cnt = collections.Counter(); ex = {}
++ctx = ''
++for x, y in zip(a, b):
++    if not x.startswith(' V'): ctx = x
++    if x == y: continue
++    p, q = x.split(), y.split()
++    if p[0] == 'V' and q[0] == 'V':
++        pos = abs(float(p[1]) - float(q[1])) > 0.01 or abs(float(p[2]) - float(q[2])) > 0.01
++        uv = p[3:5] != q[3:5]
++        col = p[5:] != q[5:]
++        dmax = max(abs(int(i) - int(j)) for i, j in zip(p[5:], q[5:]))
++        for k, v in (('Vpos', pos), ('Vuv', uv), ('Vcol', col)):
++            if v:
++                cnt[k] += 1; ex.setdefault(k, (ctx, x, y))
++        if col: cnt['Vcol_maxdiff_%d' % dmax] += 1
++    else:
++        cnt[p[0]] += 1; ex.setdefault(p[0], (x, y))
++print(dict(cnt))
++for k, v in ex.items(): print(' ', k, '|'.join(v))
+diff -ruN a/tests/diff_rt2d/files.txt b/tests/diff_rt2d/files.txt
+--- a/tests/diff_rt2d/files.txt
++++ b/tests/diff_rt2d/files.txt
+@@ -0,0 +1,13 @@
++/home/daniel/git/mashed/MashedGame/DriveToSurvive/extracted/App_Executables/TOASTART/Common/Font36/20NEUROPS2.RWF
++/home/daniel/git/mashed/MashedGame/DriveToSurvive/extracted/App_Executables/TOASTART/Common/Font36/20NEUROX.RWF
++/home/daniel/git/mashed/MashedGame/DriveToSurvive/extracted/App_Executables/TOASTART/Common/Font36/FGDC20.RWF
++/home/daniel/git/mashed/MashedGame/DriveToSurvive/extracted/App_Executables/TOASTART/Common/Font36/FGMC20.RWF
++/home/daniel/git/mashed/MashedGame/DriveToSurvive/extracted/App_Executables/TOASTART/Common/Font36/PS2/PS2FGDC20.RWF
++/home/daniel/git/mashed/MashedGame/DriveToSurvive/extracted/App_Executables/TOASTART/Common/Font36/XBOX/XBOXFGDC20.RWF
++/home/daniel/git/mashed/MashedGame/FullyLoaded/extracted/App_Executables/TOASTART/Common/Font36/20NEUROPS2.RWF
++/home/daniel/git/mashed/MashedGame/FullyLoaded/extracted/App_Executables/TOASTART/Common/Font36/20NEUROX.RWF
++/home/daniel/git/mashed/MashedGame/FullyLoaded/extracted/App_Executables/TOASTART/Common/Font36/FGDC20.RWF
++/home/daniel/git/mashed/MashedGame/FullyLoaded/extracted/App_Executables/TOASTART/Common/Font36/FGMC20.RWF
++/home/daniel/git/mashed/MashedGame/FullyLoaded/extracted/App_Executables/TOASTART/Common/Font36/INGAMEFONT.RWF
++/home/daniel/git/mashed/MashedGame/FullyLoaded/extracted/App_Executables/TOASTART/Common/Font36/PS2/PS2FGDC20.RWF
++/home/daniel/git/mashed/MashedGame/FullyLoaded/extracted/App_Executables/TOASTART/Common/Font36/XBOX/XBOXFGDC20.RWF
+diff -ruN a/tests/diff_rt2d/orig_reader.py b/tests/diff_rt2d/orig_reader.py
+--- a/tests/diff_rt2d/orig_reader.py
++++ b/tests/diff_rt2d/orig_reader.py
+@@ -0,0 +1,176 @@
++#!/usr/bin/env python3
++# Model of the ORIGINAL MFL.exe Rt2d routines (Rt2dFontStreamRead 0x564E40, GetStringWidth 0x565F80,
++# texture show 0x5653F0, Flow 0x566060, BrushSetRGBA 0x564B10, _rt2dCTMGet 0x563410) written from the
++# decompile/disassembly; emits the same text format as rt2ddump.cpp.  usage: orig_reader.py strings.txt FILE.RWF
++import struct, sys, math
++from fractions import Fraction as Fr
++
++def f32(x):
++    return struct.unpack('<f', struct.pack('<f', float(x)))[0]
++def fb(x):
++    return struct.unpack('<I', struct.pack('<f', float(x)))[0]
++
++class Font: pass
++
++def read_font(data):
++    p = 0
++    typ, size, ver = struct.unpack_from('<III', data, p); p += 12
++    assert typ == 0x199
++    version, = struct.unpack_from('<I', data, p); p += 4
++    assert version >> 24 != 0
++    f = Font()
++    f.type, f.f1, f.baseline, f.gap, f.flags = struct.unpack_from('<ifffi', data, p); p += 20
++    f.highBase, f.numGlyphs, f.numHigh = struct.unpack_from('<iii', data, p); p += 12   # +0x124, +0x130, +0x128
++    f.high = []
++    if f.numHigh > 0:
++        f.high = list(struct.unpack_from('<%dh' % f.numHigh, data, p)); p += 2 * f.numHigh
++    f.low = list(struct.unpack_from('<128h', data, p)); p += 256
++    assert f.type == 0
++    f.glyphs = []
++    for i in range(f.numGlyphs):
++        u0, v0, u1, v1 = struct.unpack_from('<4f', data, p); p += 16      # -> glyph+8
++        adv, = struct.unpack_from('<f', data, p); p += 4                  # -> glyph+0
++        ti, = struct.unpack_from('<b', data, p); p += 1                   # signed char at glyph+0x1c
++        f.glyphs.append((adv, u0, v0, u1, v1, ti))
++    n, = struct.unpack_from('<i', data, p); p += 4
++    f.tex = []
++    for i in range(n):
++        f.tex.append(data[p:p+32].split(b'\0')[0].decode('latin1')); p += 32
++    return f
++
++def gidx(f, c):
++    if c < 0x80:
++        g = f.low[c]
++    else:
++        d = c - f.highBase
++        if d < 0 or d >= f.numHigh: return -1
++        g = f.high[d]
++    return g if g > -1 else -1
++
++def width_ext(f, s):
++    w = 0.0
++    for c in s:
++        if c == 0: break
++        g = gidx(f, c)
++        if g > -1: w = f32(f32(f.glyphs[g][0] + f.gap) + w)
++    return Fr(w)
++
++def get_string_width(f, s, h):
++    return f32(float(width_ext(f, s)) * h)
++
++# ---- device / CTM (4:3 view 2 x 1.5, 640x480, layer depth 1)
++VW, VH, RW_, RH = 2.0, 1.5, 640, 480
++def to_screen(x, y):
++    m = min(VW, VH)
++    return x * m / VW * RW_, (1.0 - y * m / VH) * RH
++
++def trunc_byte(x):
++    return int(math.trunc(x)) & 0xff
++
++class Brush:
++    def __init__(s, c0, c1, c2, c3):   # Rt2dBrushSetRGBA(brush, c0, c1, c2, c3)
++        s.top = [float(v) for v in c3]; s.dtop = [float(c2[i]) - float(c3[i]) for i in range(4)]
++        s.bot = [float(v) for v in c0]; s.dbot = [float(c1[i]) - float(c0[i]) for i in range(4)]
++        s.flat = tuple(c3)
++        s.grad = not (c0 == c1 == c2 == c3)
++
++def corner_colour(b, top, t):
++    if not b.grad: return b.flat
++    base, d = (b.top, b.dtop) if top else (b.bot, b.dbot)
++    out = []
++    for i in range(4):
++        v = f32(Fr(base[i]) + Fr(f32(Fr(d[i]) * t)))   # PC24: every op rounds to float
++        out.append(trunc_byte(v))   # fistp with RC = chop
++    return tuple(out)
++
++def show(f, s, h, pos, b, out):
++    W = width_ext(f, s)
++    invW = f32(Fr(1) / W) if W != 0 else float('inf')
++    x = 0.0; acc = 0.0
++    for c in s:
++        if c == 0: break
++        g = gidx(f, c)
++        if g <= -1: continue
++        adv, u0, v0, u1, v1, ti = f.glyphs[g]
++        tl = Fr(f32(Fr(invW) * Fr(acc))) if W != 0 else Fr(0)
++        tr = Fr(f32(Fr(invW) * Fr(f32(acc + adv)))) if W != 0 else Fr(0)
++        for (vx, vy, u, v, top, t) in ((x, 0.0, u0, v1, False, tl), (x, 1.0, u0, v0, True, tl),
++                                       (x + adv, 0.0, u1, v1, False, tr), (x + adv, 1.0, u1, v0, True, tr)):
++            px = pos[0] + h * vx
++            py = pos[1] + h * (vy - f.baseline)
++            sx, sy = to_screen(px, py)
++            out.append((sx, sy, u, v) + corner_colour(b, top, t))
++        x = f32(f32(x + f.gap) + adv)
++        acc = f32(f32(acc + f.gap) + adv)
++    return f32(f32(x * h) + pos[0])
++
++def flow(f, s, h, rect, fmt, b, out, maxlines=None):
++    lineW = f32(Fr(rect[2]) / Fr(h))
++    align = f32(h * 0.5) if fmt == 1 else (h if fmt == 2 else 0.0)
++    ly = f32(f32(rect[3] + rect[1]) - h)
++    first = True
++    w = Fr(0); lastW = 0.0
++    cur = start = brk = 0
++    lines = 0
++    while True:
++        ch = s[cur]
++        if ch == 0:
++            px = f32(f32(f32(lineW - float(w)) * align) + rect[0])
++            lines += 1
++            if out is not None: show(f, s[start:] , h, (px, ly), b, out)
++            return True, lines
++        g = gidx(f, ch)
++        if first and ch == 0x20:
++            first = False; brk = cur; lastW = f32(w)
++        else:
++            first = True
++            if ch == 10: brk = cur + 1; lastW = f32(w)
++        if g > -1: w = Fr(f32(f32(f.glyphs[g][0] + f.gap) + float(w)))
++        if Fr(lineW) < w or ch == 10:
++            px = f32(f32(f32(lineW - lastW) * align) + rect[0])
++            lines += 1
++            if out is not None: show(f, s[start:brk] + [0], h, (px, ly), b, out)
++            noprog = (brk == start)
++            cur = brk
++            while s[cur] == 0x20: cur += 1
++            ly = f32(ly - h); lyx = Fr(ly)
++            first = True; brk = start = cur; w = Fr(0)
++            if lyx < Fr(rect[1]): return False, lines
++            if maxlines and noprog and s[cur] != 0: return None, lines
++        else:
++            cur += 1
++
++def main():
++    strs = []
++    for line in open(sys.argv[1]):
++        strs.append([int(t, 16) for t in line.split()] + [0])
++    f = read_font(open(sys.argv[2], 'rb').read())
++    o = sys.stdout.write
++    o("H %d %08x %08x %08x %d %d %d %d %d\n" % (f.type, fb(f.f1), fb(f.baseline), fb(f.gap), f.flags, f.highBase, f.numGlyphs, f.numHigh, len(f.tex)))
++    for i, t in enumerate(f.tex): o("T %d %s\n" % (i, t))
++    for i, (adv, u0, v0, u1, v1, ti) in enumerate(f.glyphs):
++        o("G %d %08x %08x %08x %08x %08x %d\n" % (i, fb(adv), fb(u0), fb(v0), fb(u1), fb(v1), ti))
++    for c in list(range(0x300)): o("M %x %d\n" % (c, gidx(f, c)))
++    o("M ffff %d\n" % gidx(f, 0xffff))
++    hs = [1.0, f32(0.0708), f32(f32(0.0020833334) * 24), f32(0.05)]
++    for i, s in enumerate(strs):
++        for k, h in enumerate(hs): o("W %d %d %08x\n" % (i, k, fb(get_string_width(f, s, h))))
++    def dq(q):
++        for (x, y, u, v, r, g, b, a) in q: o(" V %.3f %.3f %08x %08x %d %d %d %d\n" % (x, y, fb(u), fb(v), r, g, b, a))
++    br = Brush((255, 0, 10, 255), (0, 255, 200, 128), (7, 99, 255, 0), (250, 3, 128, 77))
++    for i, s in enumerate(strs):
++        q = []
++        px = show(f, s, f32(0.05), (f32(0.2), f32(0.4)), br, q)
++        o("S %d %08x\n" % (i, fb(px))); dq(q)
++    flat = Brush(*([(200, 100, 50, 25)] * 4))
++    h = f32(f32(0.0708) * f32(0.8))
++    for i, s in enumerate(strs):
++        for k, wd in enumerate([0.3, 0.6, 1.2]):
++            for fmt in range(3):
++                q = []
++                ok, _ = flow(f, s, h, (f32(0.1), f32(0.1), f32(wd), f32(0.8)), fmt, flat, q)
++                o("F %d %d %d %d\n" % (i, k, fmt, ok)); dq(q)
++                ok2, n = flow(f, s, h, (0.0, 0.0, f32(wd), f32(1.0e6)), 0, None, None, maxlines=65536)
++                o("N %d %d %d\n" % (i, k, n if ok2 is not None else 65537))
++
++main()
+diff -ruN a/tests/diff_rt2d/REVIEW.md b/tests/diff_rt2d/REVIEW.md
+--- a/tests/diff_rt2d/REVIEW.md
++++ b/tests/diff_rt2d/REVIEW.md
+@@ -0,0 +1,88 @@
++# Rt2d review (librw-mfl patch 0012) against MFL.exe
++
++Reviewer: independent, 2026-10-19. Implementation not edited. Read: src/rt2d.cpp, src/rwrt2d.h, MFL_NOTES.md (Rt2d section),
++game callers in ghidra/recomp (ui_text_draw_a/b/wide_a, hud_label_draw_text, ui_rt2d_init, rt2d_font_load, ui_2d_begin,
++app_state_menu_render). Original routines decompiled read-only from the scratch project copy (`rt2d.c`, range 0x5609c0-0x567800,
++`misattr.c`, `xref.c`) plus objdump of MFL.exe for the FPU details (`flow.s`, `show.s`, `d3d.s`).
++
++## Method
++Differential, same as the PI-TXD/BSP reviews:
++- `orig_reader.py`: Python model of the original control flow (Rt2dFontStreamRead 0x564E40, GetStringWidth 0x565F80,
++  texture show 0x5653F0, Flow 0x566060, BrushSetRGBA 0x564B10, _rt2dCTMGet 0x563410 device mapping, flatten not modelled).
++  It models the game's float arithmetic as x87 with precision control = 24 bit (see F2 for why).
++- `rt2ddump.cpp`: links the fork's objects (built with the fork's own tests/build_rt2d_test.sh into `obj/`), same output format.
++- Per font: header, all glyph records, texture names, glyphIndex for codes 0..0x2FF and 0xFFFF, widths of 14 strings x 4
++  heights, Show quads (screen x/y, u/v bits, RGBA) with a 4-colour gradient brush, Flow quads for 14 strings x 3 box widths x
++  3 formats (line breaks, alignment, line y, return value) with a flat brush, and measureFlow line counts.
++  Strings cover spaces/double spaces/leading spaces, `\n`, empty lines, a word longer than the box (endless-repeat case),
++  >64 glyphs (batch split), Latin-1 high chars, INGAMEFONT's 141+ range, unmapped codes >= 0x100, empty string, tab.
++- `run_diff.sh` then `cmp.py d/N.lib d/N.orig` (screen positions compared with 0.01 px tolerance, everything else exact).
++- `fix/rt2d.cpp` = copy of the fork with the corrections from SPEC_RT2D.md section 9; `rt2ddump_fix` built from it.
++
++Result over all 13 shipped RWF files (2753 glyphs):
++
++| Record | fork vs original model | fork + spec fixes vs model |
++|---|---|---|
++| header, glyph table (bit exact), texture names, char map 0..0x2FF + 0xFFFF | identical | identical |
++| Flow: return value, number of lines, line positions (x incl. alignment, y), glyphs per line | identical | identical |
++| measureFlow line counts (incl. endless-word case = 65537 in both) | identical | identical |
++| Show: quad count, vertex order, screen x/y, u/v, pos->x advance | identical | identical |
++| Show: gradient vertex colours | 802-2826 vertices per file off by exactly 1 | identical |
++| GetStringWidth (56 values per file) | 20-40 values per file off by 1-5 ulp | identical |
++
++## Findings
++
++| # | Severity | Area | Expected (original) | Actual (fork) | Evidence |
++|---|---|---|---|---|---|
++| F1 | Medium-low | Show gradient colours | Each channel = `trunc(float(base + float(delta*t)))` - the game converts with fistp after setting RC=chop (`or ah,0x0C; fldcw; fistp` at 0x5656a0.. in 0x5653F0) | `lrintf(a + (b-a)*t)` = round-to-nearest. Up to +1 per channel on every gradient vertex | differential: all colour diffs are exactly 1, 0 after the fix. HUD labels use 4-colour brushes (hud_label_draw_text -> Rt2dBrushSetRGBA(c0..c3)), so it is reachable |
++| F2 | Low | GetStringWidth / Show t / spanWidth precision | Game runs with x87 precision control 24 bit (D3D9 device created without D3DCREATE_FPU_PRESERVE: behaviour flags at 0x4d83d5-0x4d8420 are only 0x4 and 0x20/0x40/0x50), so every add/mul rounds to float: `w = float(float(adv+gap) + w)` per glyph, result `float(w*h)` | sum in double, rounded once, then times height | 20-40 of 56 widths per file differ by 1-5 ulp; 0 after fix. Visually negligible; it can only flip a wrap/centre decision at an exact boundary. (If precision control were 64 bit instead, the fork would still differ in 7/56 values, so it matches neither.) |
++| F3 | Low | Show accumulation order | `x = float(float(x + intergap) + adv)` | `x += float(intergap + adv)` | asm 0x565bc7-0x565bda. Only differs when intergap != 0; the game never sets intergap (see F9) |
++| F4 | Low | Rt2dDeviceSetCamera edge cases | `nil` -> device camera cleared, returns 0. Camera without frame buffer -> returns 0 and changes nothing (previous camera kept) | `nil` returns 1; no-frame-buffer case stores `devCamera = cam` before failing | 0x563030 |
++| F5 | Low | Default Im2D sink render states | Game draws through Im3D with flags 5 (VERTEXUV + NOCLIP, *not* ALLOPAQUE) at camera-space z = 1.0 and sets only TEXTUREFILTER (texture filterAddressing & 0xFF) and TEXTURERASTER, only when the texture changes; its callers turn ZTEST *and* ZWRITE off around HUD/menu text (app_state_menu_render) | sink forces CULLNONE and ZTEST off, leaves ZWRITE and VERTEXALPHA as found. With a texture without alpha the brush alpha would not blend (game: Im3D without ALLOPAQUE blends vertex alpha) | 0x5653F0 RwIm3DTransform(...,5); xref.c |
++| F6 | Info | Path close | Rt2dPathClose appends a closing lineto to the first point when the last point differs, then marks closed | only marks closed (clip path has 4 points instead of 5) | 0x5639a0. No effect on GetBBox, the only consumer in the game |
++| F7 | Info | Curveto flattening (guess 2) | adaptive de Casteljau, max 7 levels, flat when both control points are within sqrt(tol) of the chord; tol = squared length of half a pixel mapped into CTM space | fixed 16 segments | 0x563e70, 0x562e60. Game never calls curveto; only GetBBox of curved paths would differ marginally |
++| F8 | Info | Font texture lookup | RwTextureRead(name) with the font dictionary made current: dictionary hit, otherwise the normal texture read path (load from disk, add to the dictionary); Rt2dOpen creates a default font dictionary | `find` only, default dictionary nil | 0x564e40, 0x565e10. Fine for the port as long as the TXD is set first (documented) |
++| F9 | Info | api_used "rwp physics" rows | 0x56b2f0 (byte-identical to Rt2dFontSetIntergapSpacing: `*(p+0xC)=v`) is called from rwp_world_create_once with the world's first field; 0x571840 is a `*(p+4)=v` setter called from rwp_world_create_once, 0x56e7d0 is the same `*(p+4)=v` body inside the rwp library range (no direct code xref found; api_used counts its 5 calls from one function); 0x56bf00 is a destructor thunk (-> 0x56c0a0) used by refcounted anim objects (0x58cbe0, 0x5b6420). The real Rt2d font/object/anim code lives in 0x562d20-0x5677f0 | not implemented | misattr.c, xref.c. Implementer's conclusion confirmed: none of the four is Rt2d; Rt2dObjectSetDepth/Rt2dAnimSetDeltaTimeScale/rt2dAnimPropsStreamGetSize need nothing; the real intergap setter is unused by the game |
++| F10 | Info | rwrt2d.h comment | batches hold up to 64 quads | header says "<= 63 quads" (code correctly flushes at 64) | game flushes when numIndices > 378 before adding a quad -> 64 quads (0x2400-byte vertex buffer = 256 vertices, 384 indices) |
++| F11 | Low (library) | StreamMemory::read8 / write8 | - | (a) confirmed: `memcpy(data, &this->data[pos], 0)` with `this->data == nullptr` (stream opened on an empty buffer) is UB, UBSan flags it; (b) also `position + len` is uint32 and can wrap for a huge `len`, so the bounds check passes and memcpy runs with a ~4 GB length (same in write8) | src/base.cpp:970-982, 952-968. Fix: return early when `l == 0`; compare with `len > length - position` (position <= length is guaranteed when not EOF) |
++
++## Guesses list, verdicts
++1. Rotation direction: **correct.** Rt2dCTMRotate = RwMatrixRotate(axis +z, degrees, PRECONCAT). The device mapping (x scaled by -unit
++   into an RW camera, whose +x points left on screen; y by +unit) makes Rt2d space a plain x-right/y-up frame, so +angle is
++   counter-clockwise on screen. Fork's `{c, s, -s, c}` pre-concatenated matches.
++2. Curve flattening: differs (F7), unused.
++3. Render states: see F5. Cull/ztest forcing is harmless for the game's own call sites (they disable ztest+zwrite), but
++   VERTEXALPHA should be enabled while drawing and ZWRITE handled the same way as ZTEST.
++4. Depth z: g_rt_948240 ("layer depth") is written only in _rt2dGstateOpen (= 1.0); nothing else writes it. Text sits at
++   camera-space z = 1 in the game. Drawing Im2D at near z with ztest off is equivalent for the HUD/menu paths.
++5. Frame-sync callback swap in SetCamera: only chains to the old callback (0x563120 jumps through the saved pointer);
++   omitting it is fine.
++6. Scale factor for parallel projection: local factor = 1.0 for parallel, else layer depth = 1.0, so always 1.0. **Correct.**
++7. Intergap setter call from rwp_world_create_once: confirmed mis-attribution (F9).
++8. 8-bit fonts: decode/width/flow/show follow the same code with a byte step and a zero high-byte mask; fork matches.
++9. Special-char mapping: game code, correctly out of scope.
++
++## Confirmed correct (path-by-path, besides the differential)
++- Stream read: version top byte != 0; header type, f(+4), baseline(+8), intergap(+0xC), flags(+0x10); then highBase, numGlyphs,
++  numHigh (file order); highMap (numHigh int16) only if numHigh > 0; lowMap 128 int16; glyph = 4 floats uv (u0,v0,u1,v1),
++  float advance, 1 byte texture index (signed char in the game); int32 texture count; 32-byte names.
++- Glyph lookup: code < 0x80 -> lowMap; else highMap[code-highBase] if in range; negative = none.
++- Show: CTM push, translate(pos), scale(h,h), translate(0,-baseline); quad corners (x,0)/(x,1)/(x+adv,0)/(x+adv,1) with
++  uv (u0,v1)/(u0,v0)/(u1,v1)/(u1,v0); indices (0,2,3),(0,3,1); new batch on texture change or at 64 quads; pos->x += x*h; pop.
++- Brush: SetRGBA(bl, br, tr, tl); flat colour = 4th argument; gradient flag cleared only when all four equal; Create = white,
++  refcount 1; Destroy frees when the count drops below 1 and returns 1 only then.
++- Flow: lineW = w/h; alignment factor 0 / h/2 / h for formats 0/1/2; first line y = rect.y + rect.h - h; the alternating
++  "first space of a run" break rule; '\n' breaks after itself (the newline char is part of the drawn span); leading spaces
++  skipped after a break; no progress on an over-long word (repeats until it drops below rect.y, then returns NULL); the
++  check happens after drawing the line.
++- CTM: 32 matrices (push fails at depth 31), pop no-op at 0, all ops pre-concatenate; device mapping
++  sx = x*unit/viewW*rasterW, sy = (1 - y*unit/viewH)*rasterH with unit = min(viewW, viewH), view = 2*viewWindow.
++- Clip path corners: (W/u,0), (W/u,H/u), (0,H/u), (0,0) through the inverse CTM; bbox {minx, miny, w, h} initialised from
++  the first point.
++
++## Files
++- /tmp/claude-1000/rt2dreview/orig_reader.py, rt2ddump.cpp, strings.txt, files.txt, run_diff.sh, cmp.py, d/ (outputs)
++- /tmp/claude-1000/rt2dreview/fix/rt2d.cpp (validation copy only, not a deliverable patch), rt2ddump_fix
++- /tmp/claude-1000/rt2dreview/rt2d.c, misattr.c, xref.c (decompiles), flow.s, show.s, d3d.s (disassembly)
++
++Rerun: `cd /tmp/claude-1000/rt2dreview && ./run_diff.sh && for i in $(seq 1 13); do python3 -I cmp.py d/$i.lib d/$i.orig | head -1; done`
+diff -ruN a/tests/diff_rt2d/rt2ddump.cpp b/tests/diff_rt2d/rt2ddump.cpp
+--- a/tests/diff_rt2d/rt2ddump.cpp
++++ b/tests/diff_rt2d/rt2ddump.cpp
+@@ -0,0 +1,98 @@
++// Differential dump of the librw-mfl Rt2d fork. usage: rt2ddump strings.txt FILE.RWF
++#include <stdio.h>
++#include <string.h>
++#include <string>
++#include <vector>
++#include <rw.h>
++#include <rwrt2d.h>
++using namespace rw;
++namespace rw {
++namespace ps2 { void registerPlatformPlugins(void) {} }
++namespace xbox { void registerPlatformPlugins(void) {} }
++namespace d3d8 { void registerPlatformPlugins(void) {} }
++namespace d3d9 { void registerPlatformPlugins(void) {} }
++namespace wdgl { void registerPlatformPlugins(void) {} }
++namespace gl3 { void registerPlatformPlugins(void) {} }
++}
++
++static unsigned fb(float f){ unsigned u; memcpy(&u, &f, 4); return u; }
++struct Cap { std::vector<rt2d::Vertex> v; };
++static void sink(void *u, Texture*, const rt2d::Vertex *q, int32 n){ Cap *c = (Cap*)u; c->v.insert(c->v.end(), q, q+n*4); }
++
++static std::vector<std::vector<uint16_t>> loadStrings(const char *p)
++{
++	std::vector<std::vector<uint16_t>> out;
++	FILE *f = fopen(p, "r"); char line[4096];
++	while(fgets(line, sizeof line, f)){
++		std::vector<uint16_t> s;
++		// format: space separated hex codes
++		char *t = strtok(line, " \n");
++		while(t){ s.push_back((uint16_t)strtoul(t, 0, 16)); t = strtok(0, " \n"); }
++		s.push_back(0);
++		out.push_back(s);
++	}
++	fclose(f);
++	return out;
++}
++
++static void dumpQuads(Cap &c)
++{
++	for(size_t i = 0; i < c.v.size(); i++){
++		rt2d::Vertex &v = c.v[i];
++		printf(" V %.3f %.3f %08x %08x %d %d %d %d\n", v.x, v.y, fb(v.u), fb(v.v), v.r, v.g, v.b, v.a);
++	}
++	c.v.clear();
++}
++
++int main(int argc, char **argv)
++{
++	Engine::init(); Engine::open(nil); Engine::start();
++	std::vector<std::vector<uint16_t>> strs = loadStrings(argv[1]);
++	FILE *fp = fopen(argv[2], "rb"); fseek(fp, 0, SEEK_END); long n = ftell(fp); fseek(fp, 0, SEEK_SET);
++	std::vector<uint8> buf(n); fread(buf.data(), 1, n, fp); fclose(fp);
++	StreamMemory s; s.open(buf.data(), n);
++	rt2d::open();
++	rt2d::Font *f = rt2d::Font::streamReadChunk(&s, 0);
++	if(!f){ printf("LOADFAIL\n"); return 1; }
++	printf("H %d %08x %08x %08x %d %d %d %d %d\n", f->type, fb(f->nominalHeight), fb(f->baseline), fb(f->intergap), f->flags,
++	       f->highBase, f->numGlyphs, f->numHigh, f->numTextures);
++	for(int i = 0; i < f->numTextures; i++) printf("T %d %s\n", i, f->texNames[i]);
++	for(int i = 0; i < f->numGlyphs; i++){
++		rt2d::Glyph &g = f->glyphs[i];
++		printf("G %d %08x %08x %08x %08x %08x %d\n", i, fb(g.advance), fb(g.u0), fb(g.v0), fb(g.u1), fb(g.v1), g.texIndex);
++	}
++	for(uint32 c = 0; c < 0x300; c++) printf("M %x %d\n", c, f->glyphIndex(c));
++	printf("M ffff %d\n", f->glyphIndex(0xffff));
++	float hs[4] = { 1.0f, 0.0708f, 0.0020833334f*24, 0.05f };
++	for(size_t i = 0; i < strs.size(); i++)
++		for(int k = 0; k < 4; k++) printf("W %zu %d %08x\n", i, k, fb(f->getStringWidth(strs[i].data(), hs[k])));
++
++	Cap cap;
++	rt2d::setQuadSink(sink, &cap);
++	rt2d::deviceSetView(2.0f, 1.5f, 640, 480);
++	rt2d::Brush *br = rt2d::Brush::create();
++	RGBA c0 = makeRGBA(255, 0, 10, 255), c1 = makeRGBA(0, 255, 200, 128), c2 = makeRGBA(7, 99, 255, 0), c3 = makeRGBA(250, 3, 128, 77);
++	for(size_t i = 0; i < strs.size(); i++){
++		br->setRGBA(&c0, &c1, &c2, &c3);
++		V2d pos = makeV2d(0.2f, 0.4f);
++		f->show(strs[i].data(), 0.05f, &pos, br);
++		printf("S %zu %08x\n", i, fb(pos.x));
++		dumpQuads(cap);
++	}
++	RGBA w = makeRGBA(200, 100, 50, 25);
++	br->setRGBA(&w, &w, &w, &w);
++	float widths[3] = { 0.3f, 0.6f, 1.2f };
++	for(size_t i = 0; i < strs.size(); i++)
++		for(int k = 0; k < 3; k++)
++			for(int fmt = 0; fmt < 3; fmt++){
++				float rect[4] = { 0.1f, 0.1f, widths[k], 0.8f };
++				rt2d::Font *r = f->flow(strs[i].data(), 0.0708f*0.8f, rect, fmt, br);
++				printf("F %zu %d %d %d\n", i, k, fmt, r != nil);
++				dumpQuads(cap);
++				int lines = f->measureFlow(strs[i].data(), 0.0708f*0.8f, widths[k], nil);
++				printf("N %zu %d %d\n", i, k, lines);
++			}
++	br->destroy();
++	f->destroy();
++	return 0;
++}
+diff -ruN a/tests/diff_rt2d/run_diff.sh b/tests/diff_rt2d/run_diff.sh
+--- a/tests/diff_rt2d/run_diff.sh
++++ b/tests/diff_rt2d/run_diff.sh
+@@ -0,0 +1,19 @@
++#!/bin/sh
++# Differential of the librw-mfl Rt2d against a Python model of the game's routines (orig_reader.py).
++# usage: tests/diff_rt2d/run_diff.sh [workdir]   -> SAME/DIFF per font file (files.txt), outputs in workdir/d
++# Pass = cmp.py reports {} (everything exact, screen positions within 0.01 px). Needs g++ and python3 only. files.txt holds absolute paths of the 13 shipped RWF files.
++set -e
++H=$(cd "$(dirname "$0")" && pwd); R=$(cd "$H/../.." && pwd)
++W=${1:-/tmp/librw_rt2d_diff}
++mkdir -p "$W/d"
++sh "$R/tests/build_rt2d_test.sh" "$W/obj" >/dev/null 2>&1
++g++ -std=c++11 -O1 -w -I"$R" -I"$R/src" "$H/rt2ddump.cpp" $(ls "$W"/obj/*.o | grep -v '/rt2d_test') -Wl,--unresolved-symbols=ignore-all -o "$W/rt2ddump" 2>/dev/null
++i=0; bad=0
++while read f; do
++  i=$((i+1))
++  "$W/rt2ddump" "$H/strings.txt" "$f" > "$W/d/$i.lib" 2>&1
++  python3 -I "$H/orig_reader.py" "$H/strings.txt" "$f" > "$W/d/$i.orig" 2>"$W/d/$i.err"
++  if [ "$(python3 -I "$H/cmp.py" "$W/d/$i.lib" "$W/d/$i.orig" | head -1)" = "{}" ]; then echo "SAME $i $f"; else bad=$((bad+1)); echo "DIFF $i $f"; python3 -I "$H/cmp.py" "$W/d/$i.lib" "$W/d/$i.orig" | head -3; fi
++done < "$H/files.txt"
++echo "diffs: $bad"
++[ $bad -eq 0 ]
+diff -ruN a/tests/diff_rt2d/SPEC_RT2D.md b/tests/diff_rt2d/SPEC_RT2D.md
+--- a/tests/diff_rt2d/SPEC_RT2D.md
++++ b/tests/diff_rt2d/SPEC_RT2D.md
+@@ -0,0 +1,127 @@
++# Rt2d subset used by MFL - behavioural spec (from the game's own routines)
++
++Written by the reviewer from the decompile/disassembly of MFL.exe (0x562d20-0x5677f0) and the 13 shipped RWF files. No SDK
++source. Section 9 lists the exact changes the fork needs; everything else in the fork already behaves as described here
++(verified by the differential in REVIEW.md).
++
++## 0. Arithmetic model
++The game creates its D3D9 device without D3DCREATE_FPU_PRESERVE, so the x87 runs with 24-bit precision control: every
++add/sub/mul/div result is rounded to float (the exponent range is wider, irrelevant here). Model all Rt2d arithmetic as plain
++IEEE float32 ops, one rounding per operation, in the operand order given below. On x86-64/SSE2 builds that is what
++`float` code does; on 32-bit x87 builds (mingw i686 default) use `-mfpmath=sse -msse2` or force stores (volatile) at each step.
++float -> byte colour conversion truncates toward zero.
++
++## 1. RWF stream (Rt2dFontStreamRead; stream positioned after the 0x199 chunk header)
++| Field | Type | Notes |
++|---|---|---|
++| version | u32 | fail if `version >> 24 == 0` |
++| type | i32 | 0 = texture font (all shipped). Non-zero = outline font: per glyph i32, f32 advance, i32 kind; kind 5 is followed by a 0x1A1 path chunk; then i32. Not needed for MFL |
++| size | f32 | default 1.0 before read; not used by width/show/flow |
++| baseline | f32 | text is drawn shifted down by baseline (in units of height) |
++| intergap | f32 | added after every mapped glyph in width, flow and show |
++| flags | i32 | bit 1 (value 2) = 16-bit chars (all shipped fonts); else 8-bit |
++| highBase | i32 | first char code of the high map (128; INGAMEFONT 141) |
++| numGlyphs | i32 | |
++| numHigh | i32 | |
++| highMap | i16[numHigh] | present only when numHigh > 0 |
++| lowMap | i16[128] | codes 0..127 |
++| glyph x numGlyphs | f32 u0, v0, u1, v1; f32 advance; i8 texIndex | v0 = top edge, v1 = bottom edge |
++| numTextures | i32 | game has 4 slots, no check |
++| name x numTextures | char[32] | texture looked up with the font texture dictionary made current (dictionary, then normal texture read path) |
++Every glyph's texture must exist and have a raster, else the read fails. Hardening (bounds on counts, map entries, texIndex,
++numTextures <= 4) is fine and does not change accepted shipped data.
++
++Character decode: 16-bit fonts read `p[0] | p[1] << 8` and step 2 bytes; 8-bit fonts read one byte. NUL ends the string.
++Glyph lookup: `c < 0x80 ? lowMap[c] : (0 <= c-highBase < numHigh ? highMap[c-highBase] : none)`; negative value = none.
++Unmapped characters contribute nothing anywhere (no width, no quad, no gap).
++
++## 2. Rt2dFontGetStringWidth(font, text, h)
++`w = 0; for each mapped glyph g: w = float(float(g.advance + intergap) + w); return float(w * h)`.
++
++## 3. Rt2dFontShow(font, text, h, pos, brush) - texture fonts
++1. CTM push; translate(pos.x, pos.y); scale(h, h); translate(0, -baseline). (If push fails the game carries on and corrupts the
++   stack; a port may skip drawing.)
++2. `W = width(text, 1.0)` (section 2 with h = 1, i.e. the plain float sum); `invW = float(1 / W)`.
++3. `x = 0; acc = 0`. For each mapped glyph g (adv = g.advance):
++   - batch: if the glyph's texture differs from the current one, or 64 quads are already batched, flush; on a texture change
++     set TEXTUREFILTER = texture.filterAddressing & 0xFF and TEXTURERASTER = texture.raster.
++   - vertices (Rt2d space, before the CTM): v0 = (x, 0) uv (u0, v1); v1 = (x, 1) uv (u0, v0);
++     v2 = (xr, 0) uv (u1, v1); v3 = (xr, 1) uv (u1, v0), with `xr = float(x + adv)`. Indices (0,2,3), (0,3,1).
++   - colours: flat brush -> every vertex = the brush's flat colour (4th SetRGBA argument). Gradient brush:
++     `tl = float(invW * acc)`, `tr = float(invW * float(acc + adv))`; v0 = bottom(tl), v1 = top(tl), v2 = bottom(tr),
++     v3 = top(tr); per channel `bottom(t) = trunc(float(B0 + float(dB * t)))` with B0 = 1st argument, dB = 2nd - 1st;
++     `top(t) = trunc(float(T0 + float(dT * t)))` with T0 = 4th argument, dT = 3rd - 4th (deltas are exact float
++     differences of the byte values). Result & 0xFF.
++   - `x = float(float(x + intergap) + adv)`; `acc` the same.
++4. Flush; `pos.x = float(float(x * h) + pos.x)` (pos.y unchanged); CTM pop.
++W = 0 (only zero-advance glyphs) gives invW = inf and NaN t in the game (colour bytes 0); not reachable with shipped fonts.
++
++## 4. Rt2dFontFlow(font, text, h, rect{x,y,w,h}, format, brush)
++```
++lineW = float(rect.w / h)
++align = format==1 ? float(h*0.5) : format==2 ? h : 0
++ly    = float(float(rect.h + rect.y) - h)
++first = true; w = 0; lastW = 0; cur = start = brk = 0
++loop:
++  c = text[cur]
++  if c == 0: show(text[start..end], h, (float(float(float(lineW - w) * align) + rect.x), ly)); return font
++  if first and c == ' ': first = false; brk = cur; lastW = w
++  else: first = true; if c == '\n': brk = cur+1; lastW = w
++  if mapped(c): w = float(float(adv + intergap) + w)
++  if lineW < w or c == '\n':
++      show(text[start..brk), h, (float(float(float(lineW - lastW) * align) + rect.x), ly))   # '\n' itself is inside the span
++      cur = brk; skip ' ' at cur
++      ly = float(ly - h); first = true; brk = start = cur; w = 0
++      if ly < rect.y: return NULL           # after drawing the line
++  else: cur++
++```
++Notes: only the first space of a run of spaces (then every second one) becomes a break candidate; a word wider than the box
++never makes progress and repeats until ly drops below rect.y (port may bound this). The game writes temporary NULs into the
++caller's buffer; a port uses spans instead. The width used for the gradient t of each line is that line's span.
++Formats: 0 left, 1 centre, 2 right.
++
++## 5. Brush
++Create: white, flat, refcount 1, no texture. SetRGBA(c0, c1, c2, c3) = (bottom-left, bottom-right, top-right, top-left);
++gradient flag cleared only when all four are equal. Destroy: decrement; free and return 1 when the count is < 1, else 0.
++
++## 6. CTM and device
++- Stack of 32 matrices; Push fails (returns false, no change) when depth is already 31; Pop is a no-op at depth 0.
++  SetIdentity resets the top. Translate/Scale/Rotate pre-concatenate (the new op is applied to points first).
++  Rotate(deg) is a counter-clockwise rotation in Rt2d space (RwMatrixRotate about +z).
++- SetCamera(cam): cam == nil -> clear the device camera, return 0. cam without frame buffer -> return 0, keep everything.
++  Else viewW = 2*viewWindow.x, viewH = 2*viewWindow.y, raster size = frame buffer size, return 1.
++- Mapping: unit = min(viewW, viewH); Rt2d point (x, y) after the CTM lands at camera-space
++  (-unit*x + viewW/2, unit*y - viewH/2, 1) i.e. screen pixel `sx = x*unit/viewW*rasterW`, `sy = (1 - y*unit/viewH)*rasterH`.
++  The layer depth is always 1.0 (only initialised), and the parallel-projection factor is also 1.0.
++- Drawing in the game: Im3D, transform flags VERTEXUV|NOCLIP (vertex alpha honoured), z = 1 in camera space; render states
++  set by Rt2d: TEXTUREFILTER, TEXTURERASTER only. HUD/menu callers disable ZTEST and ZWRITE around text.
++  Port (Im2D): draw at near z with VERTEXALPHA on; disable ZTEST and ZWRITE (or leave both to the caller) and restore.
++- GetClippath(path): empty the path; corners (viewW/unit, 0), (viewW/unit, viewH/unit), (0, viewH/unit), (0, 0) mapped through
++  the inverse CTM; moveto, 3 linetos, close.
++
++## 7. Path
++- Create: empty. Moveto starts a new subpath (reuses the current one if it has no points). Lineto appends.
++- Close: if the last point differs from the first, append a lineto to the first point; mark closed.
++- Curveto(p1, p2, p3) from the current point p0: stored as a curve; flattened on demand by recursive midpoint subdivision,
++  at most 7 levels: a segment is flat when both control points have squared perpendicular distance to the chord p0-p3 below
++  tol (test: `(|pi-p0|^2 - tol) * |p3-p0|^2 < dot(pi-p0, p3-p0)^2`); flat or depth exhausted -> emit lineto p3.
++  tol = squared length of the vector (viewW/rasterW * 0.5, 0) mapped from camera space into CTM space (half a pixel).
++- GetBBox: start from the first point of the path, extend over all points (curves flattened first), return
++  {minX, minY, maxX-minX, maxY-minY}.
++
++## 8. Not Rt2d
++api_used rows Rt2dFontSetIntergapSpacing@0x56b2f0, Rt2dObjectSetDepth@0x571840, Rt2dAnimSetDeltaTimeScale@0x56e7d0,
++rt2dAnimPropsStreamGetSize@0x56bf00 are byte-matched generic setters/destructors in the rwp/anim range; nothing to implement.
++
++## 9. Corrections for the fork (validated: with exactly these the differential is 13/13 identical)
++1. `lerpc` (colour): `d = float((float)b - (float)a) * t; v = float((float)a + d); return (uint8)((int32)v & 0xFF);` -
++   truncation, not lrintf.
++2. `showSpan`: `xr = acc + adv` (float), `ts = { float(acc*invW), float(xr*invW) }`; advance with
++   `acc = float(acc + intergap); acc = float(acc + adv)`.
++3. `spanWidth`: accumulate in float: `a = float(adv + intergap); w = float(a + w)`; return w (getStringWidth then returns
++   `float(w * height)`, which it already does).
++4. `deviceSetCamera`: return 0 for nil (still clear the camera); check the frame buffer before touching `devCamera`.
++5. Im2D sink: set VERTEXALPHA = 1 while drawing (restore after); treat ZWRITEENABLE like ZTESTENABLE.
++6. Optional: Path::close appends the closing point; rwrt2d.h comment "<= 63 quads" -> 64.
++7. Library (src/base.cpp StreamMemory::read8/write8): return 0 early when the clamped length is 0 (no memcpy with a null
++   buffer), and bound with `len > length - position` instead of `position + len > length` (uint32 wrap).
+diff -ruN a/tests/diff_rt2d/strings.txt b/tests/diff_rt2d/strings.txt
+--- a/tests/diff_rt2d/strings.txt
++++ b/tests/diff_rt2d/strings.txt
+@@ -0,0 +1,14 @@
++48 65 6c 6c 6f 20 57 6f 72 6c 64
++54 68 65 20 71 75 69 63 6b 20 62 72 6f 77 6e 20 66 6f 78 20 6a 75 6d 70 73 20 6f 76 65 72 20 74 68 65 20 6c 61 7a 79 20 64 6f 67
++20 20 6c 65 61 64 69 6e 67 20 20 64 6f 75 62 6c 65 20 20 20 73 70 61 63 65 73 20 20
++6c 69 6e 65 20 6f 6e 65 a 6c 69 6e 65 20 74 77 6f a a 6c 69 6e 65 20 66 6f 75 72
++53 75 70 65 72 63 61 6c 69 66 72 61 67 69 6c 69 73 74 69 63 65 78 70 69 61 6c 69 64 6f 63 69 6f 75 73
++43 61 66 e9 20 4d fc 6c 6c 65 72 20 a9 20 bf f1
++8d 8e 81 100 2122 41
++
++41
++52 61 63 69 6e 67 20 63 61 72 73 20 73 6d 61 73 68 20 69 6e 74 6f 20 65 61 63 68 20 6f 74 68 65 72 20 6f 6e 20 74 72 61 63 6b 73 20 61 6c 6c 20 61 72 6f 75 6e 64 20 74 68 65 20 77 6f 72 6c 64 20 77 68 69 6c 65 20 74 68 65 20 63 72 6f 77 64 20 63 68 65 65 72 73 20 6c 6f 75 64 6c 79 3b 20 65 76 65 72 79 20 77 65 61 70 6f 6e 20 70 69 63 6b 75 70 2c 20 6d 69 6e 65 2c 20 6d 69 73 73 69 6c 65 20 61 6e 64 20 6f 69 6c 20 73 6c 69 63 6b 20 63 68 61 6e 67 65 73 20 74 68 65 20 72 61 63 65 2e 20 4c 61 73 74 20 63 61 72 20 73 74 61 6e 64 69 6e 67 20 77 69 6e 73 20 74 68 65 20 72 6f 75 6e 64 20 61 6e 64 20 73 63 6f 72 65 73 20 61 20 70 6f 69 6e 74 20 66 6f 72 20 69 74 73 20 74 65 61 6d 2e 20 52 61 63 69 6e 67 20 63 61 72 73 20 73 6d 61 73 68 20 69 6e 74 6f 20 65 61 63 68 20 6f 74 68 65 72 20 6f 6e 20 74 72 61 63 6b 73 20 61 6c 6c 20 61 72 6f 75 6e 64 20 74 68 65 20 77 6f 72 6c 64 20 77 68 69 6c 65 20 74 68 65 20 63 72 6f 77 64 20 63 68 65 65 72 73 20 6c 6f 75 64 6c 79 3b 20 65 76 65 72 79 20 77 65 61 70 6f 6e 20 70 69 63 6b 75 70 2c 20 6d 69 6e 65 2c 20 6d 69 73 73 69 6c 65 20 61 6e 64 20 6f 69 6c 20 73 6c 69 63 6b 20 63 68 61 6e 67 65 73 20 74 68 65 20 72 61 63 65 2e 20 4c 61 73 74 20 63 61 72 20 73 74 61 6e 64 69 6e 67 20 77 69 6e 73 20 74 68 65 20 72 6f 75 6e 64 20 61 6e 64 20 73 63 6f 72 65 73 20 61 20 70 6f 69 6e 74 20 66 6f 72 20 69 74 73 20 74 65 61 6d 2e 20
++61 20 62 20 63 20 64 20 65 20 66 20 67 20 68 20 69 20 6a 20 6b 20 6c 20 6d 20 6e 20 6f 20 70 20 71 20 72 20 73 20 74 20 75 20 76 20 77 20 78 20 79 20 7a 20 30 20 31 20 32 20 33 20 34 20 35 20 36 20 37 20 38 20 39
++31 73 74 9 32 6e 64 20 21 3f 2e 2c 3a 3b 27 22 28 29 2d 2b 2f 25
++57 57 57 57 57 57 57 57 57 57 57 57 57 57 57 57 57 57 57 57 57 57 57 57 20 57 57 57 57
++20 a 20 a 20 78
+diff -ruN a/tests/rt2d_test.cpp b/tests/rt2d_test.cpp
+--- a/tests/rt2d_test.cpp
++++ b/tests/rt2d_test.cpp
+@@ -130,8 +130,7 @@
+ static rt2d::Font *loadBuf(const Buf &b, bool strict = false)
+ {
+ 	StreamMemory s;
+-	static uint8 dummy[1];	// StreamMemory::read8 memcpy()s from data even for 0 bytes: never pass nullptr (library nit, see notes)
+-	s.open(b.empty() ? dummy : (uint8*)b.data(), b.size());
++	s.open((uint8*)b.data(), b.size());	// b.data() may be nil for an empty buffer: read8 handles it
+ 	rt2d::Font *f = rt2d::Font::streamReadChunk(&s, strict);
+ 	s.close();
+ 	return f;
+@@ -269,8 +268,10 @@
+ 		if(n >= 4){
+ 			CHECK(cap.v[0].r == 0 && cap.v[0].a == 255, "BL of first = bottom-left colour");
+ 			CHECK(cap.v[1].r == 10 && cap.v[1].g == 20 && cap.v[1].b == 30 && cap.v[1].a == 40, "TL of first = top-left colour");
+-			CHECK(cap.v[n-2].r == 255 && cap.v[n-2].g == 128 && cap.v[n-2].a == 255, "BR of last = bottom-right colour");
+-			CHECK(cap.v[n-1].r == 255 && cap.v[n-1].g == 255 && cap.v[n-1].a == 0, "TR of last = top-right colour");
++			// the game truncates, so t = 1 - ulp may land 1 below the end colour
++			#define NEAR1(x, y) ((x) <= (y) && (x) + 1 >= (y))
++			CHECK(NEAR1(cap.v[n-2].r, 255) && NEAR1(cap.v[n-2].g, 128) && NEAR1(cap.v[n-2].a, 255), "BR of last = bottom-right colour");
++			CHECK(NEAR1(cap.v[n-1].r, 255) && NEAR1(cap.v[n-1].g, 255) && cap.v[n-1].a <= 1, "TR of last = top-right colour");
+ 		}else CHECK(0, "no quads");
+ 		RGBA w = makeRGBA(255, 255, 255, 255);
+ 		br->setRGBA(&w, &w, &w, &w);
+@@ -407,7 +408,7 @@
+ 		rt2d::Font *f = loadBuf(c);
+ 		total++;
+ 		if(f){ loaded++; exercise(f); f->destroy(); }
+-		if(leaks() != baseDicts){ quietErr(false); CHECK(0, "leak after truncation %zu", n); return; }
++		if(leaks() != baseDicts + 1){ quietErr(false); CHECK(0, "leak after truncation %zu", n); return; }
+ 	}
+ 	// bit flips (1-3 per copy), concentrated on the header and maps half of the time
+ 	for(int i = 0; i < iters; i++){
+@@ -420,7 +421,7 @@
+ 		rt2d::Font *f = loadBuf(c);
+ 		total++;
+ 		if(f){ loaded++; exercise(f); f->destroy(); }
+-		if(leaks() != baseDicts){ quietErr(false); CHECK(0, "leak after bit flip %d", i); return; }
++		if(leaks() != baseDicts + 1){ quietErr(false); CHECK(0, "leak after bit flip %d", i); return; }
+ 	}
+ 	rt2d::close();
+ 	quietErr(false);
+@@ -487,6 +488,29 @@
+ 	rt2d::deviceSetView(2.0f, 2.0f, 100, 100);
+ 	rt2d::deviceGetClippath(p); p->getBBox(bb);
+ 	CHECK(near_(bb[2], 1) && near_(bb[3], 1), "square view");
++	// close appends the closing point; curveto flattens adaptively (straight curve -> 1 segment, bent curve -> more, <= 128)
++	p->empty(); p->moveto(0, 0); p->lineto(1, 0); p->lineto(1, 1); p->close();
++	CHECK(p->subs[0].n == 4 && p->subs[0].closed && p->subs[0].xy[6] == 0 && p->subs[0].xy[7] == 0, "close appends first point");
++	p->close(); CHECK(p->subs[0].n == 4, "close on closed loop adds nothing");
++	rt2d::deviceSetView(2.0f, 1.5f, 640, 480);
++	p->empty(); p->moveto(0, 0); p->curveto(0.3f, 0, 0.6f, 0, 1, 0);
++	CHECK(p->subs[0].n == 2, "straight curve = 1 segment (%d)", p->subs[0].n);
++	p->empty(); p->moveto(0, 0); p->curveto(0, 1, 1, 1, 1, 0);
++	CHECK(p->subs[0].n > 4 && p->subs[0].n <= 129 && p->subs[0].xy[2*p->subs[0].n-2] == 1, "bent curve subdivided (%d)", p->subs[0].n);
++	p->getBBox(bb); CHECK(bb[3] > 0.7f && bb[3] < 0.76f, "curve bbox height %g", bb[3]);
++	{
++		Camera *c = Camera::create();
++		CHECK(rt2d::deviceSetCamera(nil) == 0 && rt2d::deviceSetCamera(c) == 0, "setCamera nil / no frame buffer return 0");
++		c->destroy();
++	}
++	{	// StreamMemory on an empty buffer and with a huge length (no memcpy(nil), no uint32 wrap)
++		StreamMemory m; char tmp[4];
++		m.open(nil, 0, 0);
++		CHECK(m.read8(tmp, 0) == 0, "read8 len 0 on empty");
++		CHECK(m.read8(tmp, 0xFFFFFFF0u) == 0, "read8 huge");
++		m.open((uint8*)tmp, 4, 4); m.seek(2);
++		CHECK(m.read8(tmp, 0xFFFFFFFFu) == 2, "read8 clamps without wrap");
++	}
+ 	p->destroy();
+ 	CHECK(rt2d::numAllocated() == 0, "path/brush leak");
+ 	rt2d::close();

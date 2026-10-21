@@ -210,7 +210,7 @@ void*
 createTexture(int32 width, int32 height, int32 numlevels, uint32 usage, uint32 format)
 {
 #ifdef RW_D3D9
-	IDirect3DTexture9 *tex = nil;
+	IDirect3DTexture9 *tex;
 	d3ddevice->CreateTexture(width, height, numlevels, usage,
 	                      (D3DFORMAT)format, D3DPOOL_MANAGED, &tex, nil);
 	if(tex)
@@ -743,6 +743,10 @@ rasterFromImage(Raster *raster, Image *image)
 
 	D3dRaster *natras = GETD3DRASTEREXT(raster);
 	int32 format = raster->format&(Raster::PAL8 | Raster::PAL4 | 0xF00);
+	// palettised rasters may be opaque (PAL|C888, chosen by the caller, e.g. the PI texdict reader); the palette
+	// is stored as is, only natras->hasAlpha differs. Treat like the alpha format here.
+	if((format & (Raster::PAL8 | Raster::PAL4)) && (format & 0xF00) == Raster::C888)
+		format = (format & ~0xF00) | Raster::C8888;
 	switch(image->depth){
 	case 32:
 		if(format == Raster::C8888)

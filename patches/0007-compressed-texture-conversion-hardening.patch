@@ -1,0 +1,117 @@
+From 18532c2e13efbc1aa43f0b00b4459831f9414de0 Mon Sep 17 00:00:00 2001
+From: SciLor <scilor@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 12:00:00 +0000
+Subject: [PATCH] raster: harden compressed texture conversion
+
+Author: Dryxio (Southland-FR/librw b906b67). MIT.
+
+Upstream-ref: https://github.com/Southland-FR/librw/commit/b906b67
+---
+ src/gl/gl3raster.cpp |  7 +++++++
+ src/raster.cpp       | 49 ++++++++++++++++++++++++++++++++++++++++++++-----
+ 2 files changed, 51 insertions(+), 5 deletions(-)
+
+diff --git a/src/gl/gl3raster.cpp b/src/gl/gl3raster.cpp
+index b7c3941..43d518e 100644
+--- a/src/gl/gl3raster.cpp
++++ b/src/gl/gl3raster.cpp
+@@ -31,13 +31,18 @@ getLevelSize(Raster *raster, int32 level)
+ 	int h = raster->originalHeight;
+ 	int s = raster->originalStride;
+ 	int minDim = 1;
++	int blockSize = 0;
+ 
+ #ifdef RW_OPENGL
+ 	switch(natras->internalFormat){
+ 	case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
+ 	case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
++		blockSize = 8;
++		minDim = 4;
++		break;
+ 	case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
+ 	case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
++		blockSize = 16;
+ 		minDim = 4;
+ 		break;
+ 	}
+@@ -52,6 +57,8 @@ getLevelSize(Raster *raster, int32 level)
+ 			h /= 2;
+ 	}
+ 
++	if(blockSize)
++		return ((w+3)/4)*((h+3)/4)*blockSize;
+ 	return s*h;
+ }
+ 
+diff --git a/src/raster.cpp b/src/raster.cpp
+index c7ebffe..28b2906 100644
+--- a/src/raster.cpp
++++ b/src/raster.cpp
+@@ -532,21 +532,60 @@ Raster::convertTexToCurrentPlatform(rw::Raster *ras)
+ 	// fall back to going through Image directly
+ 	int32 width, height, depth, format;
+ 	Image *img = ras->toImage();
++	if(img == nil)
++		return nil;
++	if(img->depth <= 8 && (img->pixels == nil || img->palette == nil)){
++		img->destroy();
++		return nil;
++	}
+ 	// TODO: maybe don't *always* do this?
+ 	img->unpalettize();
+-	Raster::imageFindRasterFormat(img, Raster::TEXTURE, &width, &height, &depth, &format);
++	if(!Raster::imageFindRasterFormat(img, Raster::TEXTURE, &width, &height, &depth, &format)){
++		img->destroy();
++		return nil;
++	}
+ 	format |= ras->format & (Raster::MIPMAP | Raster::AUTOMIPMAP);
+ 	Raster *newras = Raster::create(width, height, depth, format);
+-	newras->setFromImage(img);
++	if(newras == nil){
++		img->destroy();
++		return nil;
++	}
++	if(newras->setFromImage(img) == nil){
++		img->destroy();
++		newras->destroy();
++		return nil;
++	}
+ 	img->destroy();
+ 	int numLevels = ras->getNumLevels();
+ 	for(int i = 1; i < numLevels; i++){
+-		ras->lock(i, Raster::LOCKREAD);
++		if(ras->lock(i, Raster::LOCKREAD) == nil){
++			newras->destroy();
++			return nil;
++		}
+ 		img = ras->toImage();
++		if(img == nil || (img->depth <= 8 && (img->pixels == nil || img->palette == nil))){
++			if(img)
++				img->destroy();
++			ras->unlock(i);
++			newras->destroy();
++			return nil;
++		}
+ 		// TODO: maybe don't *always* do this?
+ 		img->unpalettize();
+-		newras->lock(i, Raster::LOCKWRITE|Raster::LOCKNOFETCH);
+-		newras->setFromImage(img);
++		if(newras->lock(i, Raster::LOCKWRITE|Raster::LOCKNOFETCH) == nil){
++			img->destroy();
++			ras->unlock(i);
++			newras->destroy();
++			return nil;
++		}
++		if(newras->setFromImage(img) == nil){
++			img->destroy();
++			newras->unlock(i);
++			ras->unlock(i);
++			newras->destroy();
++			return nil;
++		}
++		img->destroy();
+ 		newras->unlock(i);
+ 		ras->unlock(i);
+ 	}
+-- 
+2.43.0

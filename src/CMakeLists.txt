@@ -18,6 +18,8 @@ add_library(librw
     light.cpp
     matfx.cpp
     pipeline.cpp
+    collision.cpp
+    pitexd.cpp
     plg.cpp
     png.cpp
     prim.cpp

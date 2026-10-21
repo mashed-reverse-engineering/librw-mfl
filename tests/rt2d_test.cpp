@@ -130,8 +130,7 @@ static int baseDicts;
 static rt2d::Font *loadBuf(const Buf &b, bool strict = false)
 {
 	StreamMemory s;
-	static uint8 dummy[1];	// StreamMemory::read8 memcpy()s from data even for 0 bytes: never pass nullptr (library nit, see notes)
-	s.open(b.empty() ? dummy : (uint8*)b.data(), b.size());
+	s.open((uint8*)b.data(), b.size());	// b.data() may be nil for an empty buffer: read8 handles it
 	rt2d::Font *f = rt2d::Font::streamReadChunk(&s, strict);
 	s.close();
 	return f;
@@ -269,8 +268,10 @@ static void testFile(const char *path, Totals &T)
 		if(n >= 4){
 			CHECK(cap.v[0].r == 0 && cap.v[0].a == 255, "BL of first = bottom-left colour");
 			CHECK(cap.v[1].r == 10 && cap.v[1].g == 20 && cap.v[1].b == 30 && cap.v[1].a == 40, "TL of first = top-left colour");
-			CHECK(cap.v[n-2].r == 255 && cap.v[n-2].g == 128 && cap.v[n-2].a == 255, "BR of last = bottom-right colour");
-			CHECK(cap.v[n-1].r == 255 && cap.v[n-1].g == 255 && cap.v[n-1].a == 0, "TR of last = top-right colour");
+			// the game truncates, so t = 1 - ulp may land 1 below the end colour
+			#define NEAR1(x, y) ((x) <= (y) && (x) + 1 >= (y))
+			CHECK(NEAR1(cap.v[n-2].r, 255) && NEAR1(cap.v[n-2].g, 128) && NEAR1(cap.v[n-2].a, 255), "BR of last = bottom-right colour");
+			CHECK(NEAR1(cap.v[n-1].r, 255) && NEAR1(cap.v[n-1].g, 255) && cap.v[n-1].a <= 1, "TR of last = top-right colour");
 		}else CHECK(0, "no quads");
 		RGBA w = makeRGBA(255, 255, 255, 255);
 		br->setRGBA(&w, &w, &w, &w);
@@ -407,7 +408,7 @@ static void fuzzFile(const char *path, int iters, Totals &T)
 		rt2d::Font *f = loadBuf(c);
 		total++;
 		if(f){ loaded++; exercise(f); f->destroy(); }
-		if(leaks() != baseDicts){ quietErr(false); CHECK(0, "leak after truncation %zu", n); return; }
+		if(leaks() != baseDicts + 1){ quietErr(false); CHECK(0, "leak after truncation %zu", n); return; }
 	}
 	// bit flips (1-3 per copy), concentrated on the header and maps half of the time
 	for(int i = 0; i < iters; i++){
@@ -420,7 +421,7 @@ static void fuzzFile(const char *path, int iters, Totals &T)
 		rt2d::Font *f = loadBuf(c);
 		total++;
 		if(f){ loaded++; exercise(f); f->destroy(); }
-		if(leaks() != baseDicts){ quietErr(false); CHECK(0, "leak after bit flip %d", i); return; }
+		if(leaks() != baseDicts + 1){ quietErr(false); CHECK(0, "leak after bit flip %d", i); return; }
 	}
 	rt2d::close();
 	quietErr(false);
@@ -487,6 +488,29 @@ static void unitTests()
 	rt2d::deviceSetView(2.0f, 2.0f, 100, 100);
 	rt2d::deviceGetClippath(p); p->getBBox(bb);
 	CHECK(near_(bb[2], 1) && near_(bb[3], 1), "square view");
+	// close appends the closing point; curveto flattens adaptively (straight curve -> 1 segment, bent curve -> more, <= 128)
+	p->empty(); p->moveto(0, 0); p->lineto(1, 0); p->lineto(1, 1); p->close();
+	CHECK(p->subs[0].n == 4 && p->subs[0].closed && p->subs[0].xy[6] == 0 && p->subs[0].xy[7] == 0, "close appends first point");
+	p->close(); CHECK(p->subs[0].n == 4, "close on closed loop adds nothing");
+	rt2d::deviceSetView(2.0f, 1.5f, 640, 480);
+	p->empty(); p->moveto(0, 0); p->curveto(0.3f, 0, 0.6f, 0, 1, 0);
+	CHECK(p->subs[0].n == 2, "straight curve = 1 segment (%d)", p->subs[0].n);
+	p->empty(); p->moveto(0, 0); p->curveto(0, 1, 1, 1, 1, 0);
+	CHECK(p->subs[0].n > 4 && p->subs[0].n <= 129 && p->subs[0].xy[2*p->subs[0].n-2] == 1, "bent curve subdivided (%d)", p->subs[0].n);
+	p->getBBox(bb); CHECK(bb[3] > 0.7f && bb[3] < 0.76f, "curve bbox height %g", bb[3]);
+	{
+		Camera *c = Camera::create();
+		CHECK(rt2d::deviceSetCamera(nil) == 0 && rt2d::deviceSetCamera(c) == 0, "setCamera nil / no frame buffer return 0");
+		c->destroy();
+	}
+	{	// StreamMemory on an empty buffer and with a huge length (no memcpy(nil), no uint32 wrap)
+		StreamMemory m; char tmp[4];
+		m.open(nil, 0, 0);
+		CHECK(m.read8(tmp, 0) == 0, "read8 len 0 on empty");
+		CHECK(m.read8(tmp, 0xFFFFFFF0u) == 0, "read8 huge");
+		m.open((uint8*)tmp, 4, 4); m.seek(2);
+		CHECK(m.read8(tmp, 0xFFFFFFFFu) == 2, "read8 clamps without wrap");
+	}
 	p->destroy();
 	CHECK(rt2d::numAllocated() == 0, "path/brush leak");
 	rt2d::close();

@@ -383,31 +383,13 @@ Texture::streamRead(Stream *stream)
 		RWERROR((ERR_CHUNK, "STRING"));
 		return nil;
 	}
-	if(length > sizeof(name) / sizeof(decltype(name[0]))) {
-		RWERROR((ERR_GENERAL, "texture name length too long"));
-		return nil;
-	}
 	stream->read8(name, length);
-	constexpr auto max_name_len = sizeof(Texture::name) / sizeof(Texture::name[0]);
-	if(length >= max_name_len) {
-		RWERROR((ERR_TEX_NAME, name));
-		name[max_name_len - 1] = '\0';
-	}
 
 	if(!findChunk(stream, ID_STRING, &length, nil)){
 		RWERROR((ERR_CHUNK, "STRING"));
 		return nil;
 	}
-	if(length > sizeof(mask) / sizeof(decltype(mask[0]))) {
-		RWERROR((ERR_GENERAL, "texture mask length too long"));
-		return nil;
-	}
 	stream->read8(mask, length);
-	constexpr auto max_mask_len = sizeof(Texture::mask) / sizeof(Texture::mask[0]);
-	if(length >= max_mask_len) {
-		RWERROR((ERR_TEX_NAME, mask));
-		mask[max_mask_len - 1] = '\0';
-	}
 
 	bool32 mipState = getMipmapping();
 	bool32 autoMipState = getAutoMipmapping();

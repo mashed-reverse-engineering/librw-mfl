@@ -21,6 +21,4 @@ ECODE(ERR_INVRASTER,
 ECODE(ERR_NOTEXTURE,
       "Could not create texture"),
 ECODE(ERR_FORMAT_UNSUPPORTED,
-      "Unsupported raster format"),
-ECODE(ERR_TEX_NAME,
-      "Texture length to long: %s"),
+      "Unsupported raster format")

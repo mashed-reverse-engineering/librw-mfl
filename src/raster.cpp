@@ -532,60 +532,21 @@ Raster::convertTexToCurrentPlatform(rw::Raster *ras)
 	// fall back to going through Image directly
 	int32 width, height, depth, format;
 	Image *img = ras->toImage();
-	if(img == nil)
-		return nil;
-	if(img->depth <= 8 && (img->pixels == nil || img->palette == nil)){
-		img->destroy();
-		return nil;
-	}
 	// TODO: maybe don't *always* do this?
 	img->unpalettize();
-	if(!Raster::imageFindRasterFormat(img, Raster::TEXTURE, &width, &height, &depth, &format)){
-		img->destroy();
-		return nil;
-	}
+	Raster::imageFindRasterFormat(img, Raster::TEXTURE, &width, &height, &depth, &format);
 	format |= ras->format & (Raster::MIPMAP | Raster::AUTOMIPMAP);
 	Raster *newras = Raster::create(width, height, depth, format);
-	if(newras == nil){
-		img->destroy();
-		return nil;
-	}
-	if(newras->setFromImage(img) == nil){
-		img->destroy();
-		newras->destroy();
-		return nil;
-	}
+	newras->setFromImage(img);
 	img->destroy();
 	int numLevels = ras->getNumLevels();
 	for(int i = 1; i < numLevels; i++){
-		if(ras->lock(i, Raster::LOCKREAD) == nil){
-			newras->destroy();
-			return nil;
-		}
+		ras->lock(i, Raster::LOCKREAD);
 		img = ras->toImage();
-		if(img == nil || (img->depth <= 8 && (img->pixels == nil || img->palette == nil))){
-			if(img)
-				img->destroy();
-			ras->unlock(i);
-			newras->destroy();
-			return nil;
-		}
 		// TODO: maybe don't *always* do this?
 		img->unpalettize();
-		if(newras->lock(i, Raster::LOCKWRITE|Raster::LOCKNOFETCH) == nil){
-			img->destroy();
-			ras->unlock(i);
-			newras->destroy();
-			return nil;
-		}
-		if(newras->setFromImage(img) == nil){
-			img->destroy();
-			newras->unlock(i);
-			ras->unlock(i);
-			newras->destroy();
-			return nil;
-		}
-		img->destroy();
+		newras->lock(i, Raster::LOCKWRITE|Raster::LOCKNOFETCH);
+		newras->setFromImage(img);
 		newras->unlock(i);
 		ras->unlock(i);
 	}

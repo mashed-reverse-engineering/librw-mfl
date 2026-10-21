@@ -1,0 +1,46 @@
+From 18532c2e13efbc1aa43f0b00b4459831f9414de0 Mon Sep 17 00:00:00 2001
+From: SciLor <scilor@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 12:00:00 +0000
+Subject: [PATCH] core: guard failed texture and HAnim allocations
+
+Author: Dryxio (Southland-FR/librw 2e8f2c3). MIT.
+
+Upstream-ref: https://github.com/Southland-FR/librw/commit/2e8f2c3
+---
+ src/d3d/d3d.cpp | 2 +-
+ src/hanim.cpp   | 7 ++++++-
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/src/d3d/d3d.cpp b/src/d3d/d3d.cpp
+index f1f5f49..83bb659 100644
+--- a/src/d3d/d3d.cpp
++++ b/src/d3d/d3d.cpp
+@@ -210,7 +210,7 @@ void*
+ createTexture(int32 width, int32 height, int32 numlevels, uint32 usage, uint32 format)
+ {
+ #ifdef RW_D3D9
+-	IDirect3DTexture9 *tex;
++	IDirect3DTexture9 *tex = nil;
+ 	d3ddevice->CreateTexture(width, height, numlevels, usage,
+ 	                      (D3DFORMAT)format, D3DPOOL_MANAGED, &tex, nil);
+ 	if(tex)
+diff --git a/src/hanim.cpp b/src/hanim.cpp
+index 6bc7c5e..d780f63 100644
+--- a/src/hanim.cpp
++++ b/src/hanim.cpp
+@@ -235,7 +235,12 @@ copyHAnim(void *dst, void *src, int32 offset, int32)
+ 	dsthanim->hierarchy = nil;
+ 	srchier = srchanim->hierarchy;
+ 	if(srchier && !(srchier->flags & HAnimHierarchy::SUBHIERARCHY)){
+-		dsthier = HAnimHierarchy::create(srchier->numNodes, nil, nil, srchier->flags, srchier->interpolator->maxInterpKeyFrameSize);
++		int32 maxKeySize = srchier->interpolator ?
++			srchier->interpolator->maxInterpKeyFrameSize :
++			sizeof(HAnimKeyFrame);
++		dsthier = HAnimHierarchy::create(srchier->numNodes, nil, nil, srchier->flags, maxKeySize);
++		if(dsthier == nil)
++			return dst;
+ 		for(i = 0; i < dsthier->numNodes; i++){
+ 			dsthier->nodeInfo[i].frame = nil;
+ 			dsthier->nodeInfo[i].flags = srchier->nodeInfo[i].flags;
+-- 
+2.43.0

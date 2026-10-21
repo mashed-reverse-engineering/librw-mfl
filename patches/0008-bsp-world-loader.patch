@@ -1,0 +1,743 @@
+diff --git a/src/geometry.cpp b/src/geometry.cpp
+index 882b685..0829c5c 100644
+--- a/src/geometry.cpp
++++ b/src/geometry.cpp
+@@ -786,6 +786,10 @@ MaterialList::streamRead(Stream *stream, MaterialList *matlist)
+ 	Material *m;
+ 	for(int32 i = 0; i < numMat; i++){
+ 		if(indices[i] >= 0){
++			if(indices[i] >= matlist->numMaterials){	// corrupt file: forward reference
++				RWERROR((ERR_GENERAL, "bad material list index"));
++				goto fail;
++			}
+ 			m = matlist->materials[indices[i]];
+ 			m->addRef();
+ 		}else{
+diff --git a/src/rwbase.h b/src/rwbase.h
+index 0f1eff0..1fcb196 100644
+--- a/src/rwbase.h
++++ b/src/rwbase.h
+@@ -601,6 +601,8 @@ enum PluginID
+ 	ID_TEXTURE       = MAKEPLUGINID(VEND_CORE, 0x06),
+ 	ID_MATERIAL      = MAKEPLUGINID(VEND_CORE, 0x07),
+ 	ID_MATLIST       = MAKEPLUGINID(VEND_CORE, 0x08),
++	ID_ATOMICSECTOR  = MAKEPLUGINID(VEND_CORE, 0x09),
++	ID_PLANESECTOR   = MAKEPLUGINID(VEND_CORE, 0x0A),
+ 	ID_WORLD         = MAKEPLUGINID(VEND_CORE, 0x0B),
+ 	ID_MATRIX        = MAKEPLUGINID(VEND_CORE, 0x0D),
+ 	ID_FRAMELIST     = MAKEPLUGINID(VEND_CORE, 0x0E),
+diff --git a/src/rwobjects.h b/src/rwobjects.h
+index da95a5c..09804de 100644
+--- a/src/rwobjects.h
++++ b/src/rwobjects.h
+@@ -849,7 +849,49 @@ struct WorldLights
+ 	Light **locals;	// points, (soft)spots
+ };
+ 
+-// A bit of a stub right now
++// BSP world tree (clean-room, from the documented stream format; MFL_NOTES.md).
++// Node kinds share a leading isLeaf so a BspNode* can be tested and cast.
++struct BspNode
++{
++	int32 isLeaf;
++};
++
++// plane sector: splits space along an axis, children are either kind
++struct PlaneSector
++{
++	int32 isLeaf;		// 0
++	int32 type;		// 0 = x, 4 = y, 8 = z (RW plane type)
++	float32 value;
++	float32 leftValue, rightValue;	// bounds of the children along the axis
++	BspNode *left, *right;
++};
++
++// atomic sector: a leaf holding geometry (BSP triangle order is v0,v1,v2,mat)
++struct WorldSector
++{
++	int32 isLeaf;		// 1
++	int32 matIdBase;	// triangle matId + matIdBase indexes World::matList
++	int32 numTriangles, numVertices;
++	BBox bbox;		// bbox.inf <= bbox.sup
++	int32 collSectorPresent;
++	int32 numTexCoordSets;
++	V3d *vertices;
++	V3d *normals;		// nil unless NORMALS
++	RGBA *colors;		// nil unless PRELIT
++	TexCoords *texCoords[8];
++	Triangle *triangles;
++	uint8 *collision;	// raw payload of the collision plugin (0x11D), not interpreted yet
++	uint32 collisionSize;
++	World *world;
++	Geometry *geometry;	// built lazily by getGeometry for rendering
++	Atomic *atomic;
++
++	Geometry *getGeometry(void);
++	void render(void);
++};
++
++typedef WorldSector *(*WorldSectorCallBack)(WorldSector *sector, void *data);
++
+ struct World
+ {
+ 	PLUGINBASE
+@@ -859,9 +901,26 @@ struct World
+ 	LinkList globalLights;	// these do not (type < 0x80)
+ 	LinkList clumps;
+ 
++	// BSP world (only set for worlds read from a stream)
++	MaterialList matList;
++	BspNode *root;
++	WorldSector **sectors;	// atomic sectors in stream order
++	int32 numSectors;
++	int32 numPlaneSectors;
++	int32 numTriangles, numVertices;
++	int32 colSectorSize;
++	uint32 format;
++	V3d invOrigin;
++	BBox bbox;		// bbox.inf <= bbox.sup
++
+ 	static int32 numAllocated;
+ 
+-	static World *create(BBox *bbox = nil);	// TODO: should probably make this non-optional
++	static World *create(BBox *bbox = nil);
++	static World *streamRead(Stream *stream);	// chunk 0x0B
++	// iterate all atomic sectors; callback returns nil to stop
++	World *forAllWorldSectors(WorldSectorCallBack cb, void *data);
++	BBox *getBBox(void) { return &this->bbox; }
++	void renderSectors(Camera *cam);	// frustum culled, uses atomic rendering	// TODO: should probably make this non-optional
+ 	void destroy(void);
+ 	void addLight(Light *light);
+ 	void removeLight(Light *light);
+diff --git a/src/world.cpp b/src/world.cpp
+index e80b8e3..b6f5926 100644
+--- a/src/world.cpp
++++ b/src/world.cpp
+@@ -31,13 +31,61 @@ World::create(BBox *bbox)
+ 	world->localLights.init();
+ 	world->globalLights.init();
+ 	world->clumps.init();
++	world->matList.init();
++	world->root = nil;
++	world->sectors = nil;
++	world->numSectors = world->numPlaneSectors = 0;
++	world->numTriangles = world->numVertices = 0;
++	world->colSectorSize = 0;
++	world->format = 0;
++	world->invOrigin.set(0.0f, 0.0f, 0.0f);
++	if(bbox)
++		world->bbox = *bbox;
++	else{
++		world->bbox.inf.set(0.0f, 0.0f, 0.0f);
++		world->bbox.sup.set(0.0f, 0.0f, 0.0f);
++	}
+ 	s_plglist.construct(world);
+ 	return world;
+ }
+ 
++static void
++destroyNode(BspNode *n)
++{
++	if(n == nil)
++		return;
++	if(n->isLeaf){
++		WorldSector *s = (WorldSector*)n;
++		if(s->atomic){
++			Frame *f = s->atomic->getFrame();
++			s->atomic->destroy();	// also drops the geometry
++			if(f)
++				f->destroy();
++		}else if(s->geometry)
++			s->geometry->destroy();
++		// triangles block also holds colors and texcoords only for Geometry;
++		// here every array is separate
++		rwFree(s->vertices);
++		rwFree(s->normals);
++		rwFree(s->colors);
++		for(int32 i = 0; i < 8; i++)
++			rwFree(s->texCoords[i]);
++		rwFree(s->triangles);
++		rwFree(s->collision);
++	}else{
++		PlaneSector *p = (PlaneSector*)n;
++		destroyNode(p->left);
++		destroyNode(p->right);
++	}
++	rwFree(n);
++}
++
+ void
+ World::destroy(void)
+ {
++	destroyNode(this->root);
++	rwFree(this->sectors);
++	this->matList.deinit();
+ 	s_plglist.destruct(this);
+ 	rwFree(this);
+ 	numAllocated--;
+@@ -133,7 +181,7 @@ World::removeClump(Clump *clump)
+ void
+ World::render(void)
+ {
+-	// this is very wrong, we really want world sectors
++	// BSP sectors need a camera; use renderSectors(cam) for them
+ 	FORLIST(lnk, this->clumps)
+ 		Clump::fromWorld(lnk)->render();
+ }
+@@ -235,4 +283,362 @@ World::enumerateLights(WorldLights *lightData)
+ 	}
+ }
+ 
++
++// ---- BSP world stream reading -------------------------------------------
++// Stream layout (documented in MashedFormats/FORMATS.md, observed in the
++// game's .BSP files):
++//  WORLD { STRUCT(64), MATLIST, (PLANESECT|ATOMICSECT), EXTENSION }
++//  PLANESECT { STRUCT(24: type, value, leftIsWorldSector, rightIsWorldSector,
++//                      leftValue, rightValue), left, right [, EXTENSION] }
++//  ATOMICSECT { STRUCT(matIdBase, numTriangles, numVertices, inf, sup,
++//                      collSectorPresent, unused, vertices, [normals int8x4],
++//                      [colors], [uvs per set], triangles {v0,v1,v2,mat}),
++//               EXTENSION }
++
++struct BspReadCtx
++{
++	World *world;
++	int32 planesLeft;
++	int32 sectorsRead;
++};
++
++static const uint32 SECTORHDR = 44;
++
++static bool readNode(Stream *stream, BspReadCtx *ctx, BspNode **slot, int32 depth);
++
++static bool
++readSectorExtension(Stream *stream, WorldSector *sec, int32 length)
++{
++	ChunkHeaderInfo h;
++	while(length >= 12){
++		if(!readChunkHeaderInfo(stream, &h))
++			return false;
++		length -= 12;
++		if((int32)h.length > length)
++			return false;
++		if(h.type == 0x11D && h.length){
++			sec->collision = rwNewT(uint8, h.length, MEMDUR_EVENT | ID_WORLD);
++			sec->collisionSize = h.length;
++			stream->read8(sec->collision, h.length);
++		}else
++			stream->seek(h.length);
++		length -= h.length;
++	}
++	return length == 0;
++}
++
++static bool
++readAtomicSector(Stream *stream, BspReadCtx *ctx, BspNode **slot, uint32 end)
++{
++	World *world = ctx->world;
++	uint32 length;
++	if(!findChunk(stream, ID_STRUCT, &length, nil)){
++		RWERROR((ERR_CHUNK, "STRUCT"));
++		return false;
++	}
++	if(length < SECTORHDR || ctx->sectorsRead >= world->numSectors){
++		RWERROR((ERR_GENERAL, "bad atomic sector"));
++		return false;
++	}
++	WorldSector *sec = rwNewT(WorldSector, 1, MEMDUR_EVENT | ID_WORLD);
++	memset(sec, 0, sizeof(*sec));
++	sec->isLeaf = 1;
++	*slot = (BspNode*)sec;
++	world->sectors[ctx->sectorsRead++] = sec;
++	sec->world = world;
++
++	int32 hdr[11];
++	stream->read32(hdr, SECTORHDR);
++	sec->matIdBase = hdr[0];
++	sec->numTriangles = hdr[1];
++	sec->numVertices = hdr[2];
++	float32 box[6];
++	memcpy(box, &hdr[3], sizeof(box));
++	sec->bbox.inf.set(box[0], box[1], box[2]);
++	sec->bbox.sup.set(box[3], box[4], box[5]);
++	sec->collSectorPresent = hdr[9];	// hdr[10] is unused
++
++	uint32 fmt = world->format;
++	if(fmt & Geometry::NATIVE){
++		RWERROR((ERR_GENERAL, "native (platform specific) world sectors are not supported"));
++		return false;
++	}
++	if(sec->numTriangles < 0 || sec->numVertices < 0 || sec->numTriangles > 0xFFFF*4 || sec->numVertices > 0xFFFF){
++		RWERROR((ERR_GENERAL, "bad sector counts"));
++		return false;
++	}
++	int32 nv = sec->numVertices, nt = sec->numTriangles;
++	int32 nsets = (fmt & 0xFF0000) >> 16;
++	if(nsets == 0)
++		nsets = (fmt & Geometry::TEXTURED2) ? 2 : (fmt & Geometry::TEXTURED) ? 1 : 0;
++	if(nsets > 8){
++		RWERROR((ERR_GENERAL, "too many texcoord sets"));
++		return false;
++	}
++	sec->numTexCoordSets = nsets;
++	uint32 expect = SECTORHDR + 12*nv + ((fmt & Geometry::NORMALS) ? 4*nv : 0) +
++	                ((fmt & Geometry::PRELIT) ? 4*nv : 0) + 8*nv*nsets + 8*nt;
++	if(expect != length){
++		RWERROR((ERR_GENERAL, "sector struct size mismatch"));
++		return false;
++	}
++	if(nv){
++		sec->vertices = rwNewT(V3d, nv, MEMDUR_EVENT | ID_WORLD);
++		stream->read32(sec->vertices, 12*nv);
++		if(fmt & Geometry::NORMALS){
++			int8 *tmp = rwNewT(int8, 4*nv, MEMDUR_FUNCTION | ID_WORLD);
++			stream->read8(tmp, 4*nv);
++			sec->normals = rwNewT(V3d, nv, MEMDUR_EVENT | ID_WORLD);
++			for(int32 i = 0; i < nv; i++)
++				sec->normals[i].set(tmp[4*i]/127.0f, tmp[4*i+1]/127.0f, tmp[4*i+2]/127.0f);
++			rwFree(tmp);
++		}
++		if(fmt & Geometry::PRELIT){
++			sec->colors = rwNewT(RGBA, nv, MEMDUR_EVENT | ID_WORLD);
++			stream->read8(sec->colors, 4*nv);
++		}
++		for(int32 i = 0; i < nsets; i++){
++			sec->texCoords[i] = rwNewT(TexCoords, nv, MEMDUR_EVENT | ID_WORLD);
++			stream->read32(sec->texCoords[i], 8*nv);
++		}
++	}
++	if(nt){
++		sec->triangles = rwNewT(Triangle, nt, MEMDUR_EVENT | ID_WORLD);
++		// BSP word order is {v0, v1, v2, material}, which is what Triangle holds
++		stream->read16(sec->triangles, 8*nt);
++		for(int32 i = 0; i < nt; i++){
++			Triangle *t = &sec->triangles[i];
++			int32 m = sec->matIdBase + t->matId;
++			if(t->v[0] >= nv || t->v[1] >= nv || t->v[2] >= nv ||
++			   m < 0 || m >= world->matList.numMaterials){
++				RWERROR((ERR_GENERAL, "sector triangle index out of range"));
++				return false;
++			}
++		}
++	}
++	// extension: collision tree (kept raw), everything else skipped
++	uint32 extLen;
++	if(!findChunk(stream, ID_EXTENSION, &extLen, nil)){
++		RWERROR((ERR_CHUNK, "EXTENSION"));
++		return false;
++	}
++	if(!readSectorExtension(stream, sec, extLen))
++		return false;
++	(void)end;
++	return true;
++}
++
++static bool
++readPlaneSector(Stream *stream, BspReadCtx *ctx, BspNode **slot, int32 depth)
++{
++	uint32 length;
++	if(!findChunk(stream, ID_STRUCT, &length, nil) || length != 24){
++		RWERROR((ERR_CHUNK, "STRUCT"));
++		return false;
++	}
++	if(ctx->planesLeft <= 0){
++		RWERROR((ERR_GENERAL, "more plane sectors than the world header says"));
++		return false;
++	}
++	ctx->planesLeft--;
++	PlaneSector *p = rwNewT(PlaneSector, 1, MEMDUR_EVENT | ID_WORLD);
++	memset(p, 0, sizeof(*p));
++	*slot = (BspNode*)p;
++	int32 buf[6];
++	stream->read32(buf, 24);
++	p->type = buf[0];
++	memcpy(&p->value, &buf[1], 4);
++	memcpy(&p->leftValue, &buf[4], 4);
++	memcpy(&p->rightValue, &buf[5], 4);
++	// buf[2], buf[3]: whether the children are atomic sectors; the child
++	// chunk header tells the same, so they are not needed.
++	return readNode(stream, ctx, &p->left, depth+1) &&
++	       readNode(stream, ctx, &p->right, depth+1);
++}
++
++static bool
++readNode(Stream *stream, BspReadCtx *ctx, BspNode **slot, int32 depth)
++{
++	ChunkHeaderInfo h;
++	if(depth > 512 || !readChunkHeaderInfo(stream, &h))
++		return false;
++	uint32 end = stream->tell() + h.length;
++	bool ok;
++	if(h.type == ID_ATOMICSECTOR)
++		ok = readAtomicSector(stream, ctx, slot, end);
++	else if(h.type == ID_PLANESECTOR)
++		ok = readPlaneSector(stream, ctx, slot, depth);
++	else{
++		RWERROR((ERR_GENERAL, "unexpected chunk in world sector tree"));
++		return false;
++	}
++	if(!ok)
++		return false;
++	// skip anything we did not consume (e.g. a plane sector extension)
++	int32 rest = (int32)end - (int32)stream->tell();
++	if(rest < 0)
++		return false;
++	if(rest)
++		stream->seek(rest);
++	return true;
++}
++
++World*
++World::streamRead(Stream *stream)
++{
++	uint32 length;
++	if(!findChunk(stream, ID_STRUCT, &length, nil)){
++		RWERROR((ERR_CHUNK, "STRUCT"));
++		return nil;
++	}
++	if(length != 64){
++		RWERROR((ERR_GENERAL, "unexpected world struct size"));
++		return nil;
++	}
++	int32 b[16];
++	stream->read32(b, 64);
++	float32 f[16];
++	memcpy(f, b, sizeof(f));
++	// rootIsWorldSector, invOrigin[3], numTri, numVert, numPlane, numAtomic,
++	// colSectorSize, format, bbox[6]
++	if(b[4] < 0 || b[5] < 0 || b[6] < 0 || b[7] < 0 || b[7] > 0x100000 || b[6] > 0x100000){
++		RWERROR((ERR_GENERAL, "bad world counts"));
++		return nil;
++	}
++	World *world = World::create(nil);
++	if(world == nil)
++		return nil;
++	world->invOrigin.set(f[1], f[2], f[3]);
++	world->numTriangles = b[4];
++	world->numVertices = b[5];
++	world->numPlaneSectors = b[6];
++	world->numSectors = b[7];
++	world->colSectorSize = b[8];
++	world->format = b[9];
++	// the world struct stores the box as sup then inf (observed: first triple is the larger)
++	world->bbox.sup.set(f[10], f[11], f[12]);
++	world->bbox.inf.set(f[13], f[14], f[15]);
++	if(world->numSectors)
++		world->sectors = rwNewT(WorldSector*, world->numSectors, MEMDUR_EVENT | ID_WORLD);
++	for(int32 i = 0; i < world->numSectors; i++)
++		world->sectors[i] = nil;
++
++	if(!findChunk(stream, ID_MATLIST, nil, nil)){
++		RWERROR((ERR_CHUNK, "MATLIST"));
++		goto fail;
++	}
++	if(MaterialList::streamRead(stream, &world->matList) == nil)
++		goto fail;
++
++	BspReadCtx ctx;
++	ctx.world = world;
++	ctx.planesLeft = world->numPlaneSectors;
++	ctx.sectorsRead = 0;
++	if(!readNode(stream, &ctx, &world->root, 0))
++		goto fail;
++	if(ctx.sectorsRead != world->numSectors || ctx.planesLeft != 0){
++		RWERROR((ERR_GENERAL, "sector counts differ from world header"));
++		goto fail;
++	}
++	if(!s_plglist.streamRead(stream, world))
++		goto fail;
++	return world;
++fail:
++	// sectors not read stay nil; destroyNode only walks the tree
++	world->destroy();
++	return nil;
++}
++
++World*
++World::forAllWorldSectors(WorldSectorCallBack cb, void *data)
++{
++	for(int32 i = 0; i < this->numSectors; i++)
++		if(this->sectors[i] && cb(this->sectors[i], data) == nil)
++			break;
++	return this;
++}
++
++// ---- minimal render path ---------------------------------------------------
++// Each sector becomes an ordinary Geometry + Atomic (identity frame) the first
++// time it is drawn, so all of librw's material/pipeline code is reused.
++// ponytail: whole world material list is attached to every sector geometry
++// (empty meshes cost nothing); trim per sector if instancing cost shows up.
++
++Geometry*
++WorldSector::getGeometry(void)
++{
++	if(this->geometry)
++		return this->geometry;
++	World *w = this->world;
++	uint32 flags = ((w->format & 0xFC) | Geometry::POSITIONS) & ~Geometry::TRISTRIP;
++	flags |= (uint32)this->numTexCoordSets << 16;
++	Geometry *g = Geometry::create(this->numVertices, this->numTriangles, flags);
++	if(g == nil)
++		return nil;
++	MorphTarget *mt = &g->morphTargets[0];
++	if(this->numVertices){
++		memcpy(mt->vertices, this->vertices, this->numVertices*sizeof(V3d));
++		if(this->normals && mt->normals)
++			memcpy(mt->normals, this->normals, this->numVertices*sizeof(V3d));
++		if(this->colors && g->colors)
++			memcpy(g->colors, this->colors, this->numVertices*sizeof(RGBA));
++		for(int32 i = 0; i < this->numTexCoordSets; i++)
++			memcpy(g->texCoords[i], this->texCoords[i], this->numVertices*sizeof(TexCoords));
++	}
++	for(int32 i = 0; i < w->matList.numMaterials; i++)
++		g->matList.appendMaterial(w->matList.materials[i]);
++	for(int32 i = 0; i < this->numTriangles; i++){
++		g->triangles[i] = this->triangles[i];
++		g->triangles[i].matId = this->matIdBase + this->triangles[i].matId;
++	}
++	mt->boundingSphere = mt->calculateBoundingSphere();
++	g->buildMeshes();
++	this->geometry = g;
++	return g;
++}
++
++void
++WorldSector::render(void)
++{
++	if(this->atomic == nil){
++		Geometry *g = this->getGeometry();
++		if(g == nil)
++			return;
++		Atomic *a = Atomic::create();
++		a->setFrame(Frame::create());
++		a->setGeometry(g, 0);
++		g->destroy();	// atomic now owns the only reference
++		this->atomic = a;
++	}
++	this->atomic->render();
++}
++
++static void
++renderNode(BspNode *n, Camera *cam)
++{
++	if(n == nil)
++		return;
++	if(n->isLeaf){
++		WorldSector *s = (WorldSector*)n;
++		if(s->numTriangles == 0)
++			return;
++		Sphere sp;
++		sp.center = scale(add(s->bbox.inf, s->bbox.sup), 0.5f);
++		sp.radius = length(sub(s->bbox.sup, sp.center));
++		if(cam && cam->frustumTestSphere(&sp) == Camera::SPHEREOUTSIDE)
++			return;
++		s->render();
++	}else{
++		PlaneSector *p = (PlaneSector*)n;
++		renderNode(p->left, cam);
++		renderNode(p->right, cam);
++	}
++}
++
++void
++World::renderSectors(Camera *cam)
++{
++	renderNode(this->root, cam);
++}
++
+ }
+diff --git a/tests/bsp_test.cpp b/tests/bsp_test.cpp
+new file mode 100644
+index 0000000..919af4c
+--- /dev/null
++++ b/tests/bsp_test.cpp
+@@ -0,0 +1,164 @@
++// Standalone BSP world loader test: no GPU. Loads each given .BSP with
++// rw::World::streamRead, validates structure and prints statistics.
++// Build: tests/build_bsp_test.sh     Run: bsp_test FILE.BSP...   (exit 1 on any failure)
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <math.h>
++#include <string>
++#include <vector>
++#include "rw.h"
++
++using namespace rw;
++
++// no platform backend is linked: neutralise the per-platform plugin registration
++namespace rw {
++namespace ps2 { void registerPlatformPlugins(void) {} }
++namespace xbox { void registerPlatformPlugins(void) {} }
++namespace d3d8 { void registerPlatformPlugins(void) {} }
++namespace d3d9 { void registerPlatformPlugins(void) {} }
++namespace wdgl { void registerPlatformPlugins(void) {} }
++namespace gl3 { void registerPlatformPlugins(void) {} }
++}
++
++struct Stats {
++	std::vector<std::string> err;
++	int planes, leaves, coll, maxDepth;
++	long ntri, nvert;
++	int minMat, maxMat;
++};
++
++#define CHECK(c, ...) do{ if(!(c)){ char b_[256]; snprintf(b_, sizeof b_, __VA_ARGS__); st.err.push_back(b_); } }while(0)
++
++static void
++walk(BspNode *n, Stats &st, int depth, const BBox *parent)
++{
++	if(depth > st.maxDepth) st.maxDepth = depth;
++	CHECK(n != nil, "null tree node");
++	if(n == nil) return;
++	if(n->isLeaf){
++		st.leaves++;
++		return;
++	}
++	PlaneSector *p = (PlaneSector*)n;
++	st.planes++;
++	CHECK(p->type == 0 || p->type == 4 || p->type == 8, "plane type %d", p->type);
++	CHECK(p->left && p->right, "plane without both children");
++	walk(p->left, st, depth+1, parent);
++	walk(p->right, st, depth+1, parent);
++}
++
++static bool
++testFile(const char *path, Stats &st, World **out)
++{
++	uint32 len = 0;
++	uint8 *data = nil;
++	if(FILE *fp = fopen(path, "rb")){	// engine file functions need Engine::open (a backend)
++		fseek(fp, 0, SEEK_END); len = ftell(fp); fseek(fp, 0, SEEK_SET);
++		data = (uint8*)malloc(len ? len : 1);
++		if(fread(data, 1, len, fp) != len){ free(data); data = nil; }
++		fclose(fp);
++	}
++	if(data == nil){ st.err.push_back("cannot read file"); return false; }
++	StreamMemory in;
++	in.open(data, len);
++	uint32 clen, ver;
++	if(!findChunk(&in, ID_WORLD, &clen, &ver)){
++		st.err.push_back("no WORLD chunk"); free(data); return false; }
++	CHECK(clen + 12 == len, "world chunk length %u does not cover file %u", clen+12, len);
++	World *w = World::streamRead(&in);
++	if(w == nil){ st.err.push_back("World::streamRead failed"); free(data); return false; }
++	CHECK(in.tell() == len, "%u trailing bytes after world", len - in.tell());
++	in.close();
++	free(data);
++
++	st.planes = st.leaves = st.coll = st.maxDepth = 0;
++	st.ntri = st.nvert = 0; st.minMat = 1<<30; st.maxMat = -1;
++	walk(w->root, st, 0, &w->bbox);
++	CHECK(st.planes == w->numPlaneSectors, "plane count %d != header %d", st.planes, w->numPlaneSectors);
++	CHECK(st.leaves == w->numSectors, "leaf count %d != header %d", st.leaves, w->numSectors);
++
++	const float eps = 1e-3f;
++	CHECK(w->bbox.inf.x <= w->bbox.sup.x && w->bbox.inf.y <= w->bbox.sup.y && w->bbox.inf.z <= w->bbox.sup.z, "world bbox inverted");
++	int nm = w->matList.numMaterials;
++	CHECK(nm > 0, "no materials");
++	for(int i = 0; i < nm; i++)
++		CHECK(w->matList.materials[i] != nil, "null material %d", i);
++	for(int s = 0; s < w->numSectors; s++){
++		WorldSector *sec = w->sectors[s];
++		CHECK(sec != nil, "sector %d missing", s);
++		if(!sec) continue;
++		st.ntri += sec->numTriangles; st.nvert += sec->numVertices;
++		BBox *b = &sec->bbox;
++		CHECK(b->inf.x <= b->sup.x && b->inf.y <= b->sup.y && b->inf.z <= b->sup.z, "sector %d bbox inverted", s);
++		CHECK(b->inf.x >= w->bbox.inf.x - eps && b->inf.y >= w->bbox.inf.y - eps && b->inf.z >= w->bbox.inf.z - eps &&
++		      b->sup.x <= w->bbox.sup.x + eps && b->sup.y <= w->bbox.sup.y + eps && b->sup.z <= w->bbox.sup.z + eps,
++		      "sector %d bbox outside world bbox", s);
++		for(int i = 0; i < sec->numVertices; i++){
++			V3d v = sec->vertices[i];
++			CHECK(isfinite(v.x) && isfinite(v.y) && isfinite(v.z), "sector %d vertex %d not finite", s, i);
++			CHECK(v.x >= b->inf.x-eps && v.y >= b->inf.y-eps && v.z >= b->inf.z-eps &&
++			      v.x <= b->sup.x+eps && v.y <= b->sup.y+eps && v.z <= b->sup.z+eps, "sector %d vertex %d outside sector bbox", s, i);
++			if(!st.err.empty() && st.err.size() > 20) return false;
++		}
++		for(int i = 0; i < sec->numTriangles; i++){
++			Triangle *t = &sec->triangles[i];
++			for(int k = 0; k < 3; k++)
++				CHECK(t->v[k] < sec->numVertices, "sector %d tri %d index %d out of range", s, i, t->v[k]);
++			int m = sec->matIdBase + t->matId;
++			CHECK(m >= 0 && m < nm, "sector %d tri %d material %d (base %d) out of range %d", s, i, m, sec->matIdBase, nm);
++			if(m < st.minMat) st.minMat = m;
++			if(m > st.maxMat) st.maxMat = m;
++			if(st.err.size() > 20) return false;
++		}
++		if(sec->collision) st.coll++;
++		// render path data (no GPU): geometry must build
++		Geometry *g = sec->getGeometry();
++		CHECK(g != nil, "sector %d geometry", s);
++		if(g){
++			CHECK(g->numTriangles == sec->numTriangles && g->numVertices == sec->numVertices, "sector %d geometry counts", s);
++			CHECK(g->meshHeader && g->meshHeader->totalIndices == (uint32)sec->numTriangles*3, "sector %d mesh indices", s);
++		}
++	}
++	CHECK(st.ntri == w->numTriangles, "triangle total %ld != header %d", st.ntri, w->numTriangles);
++	CHECK(st.nvert == w->numVertices, "vertex total %ld != header %d", st.nvert, w->numVertices);
++	// accessor round trip
++	struct C { static WorldSector *cb(WorldSector *, void *d){ (*(int*)d)++; return (WorldSector*)1; } };
++	int cnt = 0;
++	w->forAllWorldSectors(C::cb, &cnt);
++	CHECK(cnt == w->numSectors, "forAllWorldSectors visited %d", cnt);
++	*out = w;
++	return st.err.empty();
++}
++
++int
++main(int argc, char **argv)
++{
++	Engine::init();
++	Engine::open(nil);	// null device: textures are created without pixel data
++	Engine::start();
++	int fails = 0, files = 0;
++	long T = 0, V = 0, S = 0, P = 0;
++	for(int i = 1; i < argc; i++){
++		Stats st; World *w = nil;
++		bool ok = testFile(argv[i], st, &w);
++		files++;
++		if(w){
++			World::numAllocated += 0;
++			printf("%s %s: sectors %d planes %d tris %d verts %d mats %d fmt %08X depth %d coll %d bbox (%.1f %.1f %.1f)-(%.1f %.1f %.1f) matidx %d..%d\n",
++			       ok ? "PASS" : "FAIL", argv[i], w->numSectors, w->numPlaneSectors, w->numTriangles, w->numVertices,
++			       w->matList.numMaterials, w->format, st.maxDepth, st.coll,
++			       w->bbox.inf.x, w->bbox.inf.y, w->bbox.inf.z, w->bbox.sup.x, w->bbox.sup.y, w->bbox.sup.z, st.minMat, st.maxMat);
++			S += w->numSectors; P += w->numPlaneSectors; T += w->numTriangles; V += w->numVertices;
++			w->destroy();
++		}else
++			printf("FAIL %s\n", argv[i]);
++		for(size_t k = 0; k < st.err.size() && k < 5; k++)
++			printf("    %s\n", st.err[k].c_str());
++		if(!ok) fails++;
++	}
++	int leaks = World::numAllocated + Geometry::numAllocated + Material::numAllocated + Atomic::numAllocated + Frame::numAllocated;
++	printf("%d files, %d failed; totals: %ld sectors %ld planes %ld tris %ld verts; leaked objects %d (world %d geo %d mat %d atomic %d frame %d)\n",
++	       files, fails, S, P, T, V, leaks, World::numAllocated, Geometry::numAllocated, Material::numAllocated, Atomic::numAllocated, Frame::numAllocated);
++	return fails || leaks ? 1 : 0;
++}
+diff --git a/tests/build_bsp_test.sh b/tests/build_bsp_test.sh
+new file mode 100755
+index 0000000..7ef4457
+--- /dev/null
++++ b/tests/build_bsp_test.sh
+@@ -0,0 +1,18 @@
++#!/bin/sh
++# Builds tests/bsp_test with plain g++ (no cmake, no GPU, no platform backend).
++# usage: tests/build_bsp_test.sh [outdir]   (default /tmp/librw_bsp_test)
++set -e
++R=$(cd "$(dirname "$0")/.." && pwd)
++O=${1:-/tmp/librw_bsp_test}
++mkdir -p "$O"
++for f in "$R"/src/*.cpp; do
++	b=$(basename "$f" .cpp)
++	[ "$b" = charset ] && continue	# needs a render backend
++	g++ -std=c++11 -O1 -w -I"$R" -I"$R/src" -c "$f" -o "$O/$b.o" &
++done
++g++ -std=c++11 -O1 -w -c "$R/src/lodepng/lodepng.cpp" -o "$O/lodepng.o" &
++wait
++# platform backends (d3d/gl/ps2/xbox) are not built; their symbols are only reached by native
++# textures/geometry, which BSP loading never touches, hence the unresolved-symbols flag.
++g++ -std=c++11 -O1 -w -I"$R" -I"$R/src" "$R/tests/bsp_test.cpp" "$O"/*.o -Wl,--unresolved-symbols=ignore-all -o "$O/bsp_test"
++echo "built $O/bsp_test"

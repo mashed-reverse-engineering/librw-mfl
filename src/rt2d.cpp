@@ -38,6 +38,7 @@ enum { CTMDEPTH = 32, MAXBATCH = 64 };	// 32 matrices (depth 0..31); batch of 64
 static Affine ctm[CTMDEPTH];
 static int32 ctmTop;
 static TexDictionary *fontDict;
+static TexDictionary *ownDict;	// default font dictionary created by open() (Rt2dOpen does the same)
 static float32 viewW = 2.0f, viewH = 1.5f;	// GUESS: default 4:3 view until a camera is set
 static int32 rasterW = 640, rasterH = 480;
 static Camera *devCamera;
@@ -47,6 +48,7 @@ static Vertex batch[MAXBATCH*4];
 static int32 batchQuads;
 static Texture *batchTex;
 
+static float32 unit(void) { return viewH < viewW ? viewH : viewW; }
 static Affine identity(void) { Affine a = { 1, 0, 0, 1, 0, 0 }; return a; }
 
 // result = m * t (t applied first)
@@ -75,7 +77,8 @@ open(void)
 {
 	ctmTop = 0;
 	ctm[0] = identity();
-	fontDict = nil;
+	if(ownDict) ownDict->destroy();
+	ownDict = fontDict = TexDictionary::create();
 	devCamera = nil;
 	viewW = 2.0f; viewH = 1.5f; rasterW = 640; rasterH = 480;
 	batchQuads = 0; batchTex = nil;
@@ -87,10 +90,15 @@ close(void)
 {
 	ctmTop = 0;
 	ctm[0] = identity();
-	fontDict = nil;
+	if(ownDict) ownDict->destroy();
+	ownDict = fontDict = nil;
 	devCamera = nil;
 	batchQuads = 0; batchTex = nil;
 }
+
+// The game runs with x87 precision control = 24 bit (D3D9 device without FPU_PRESERVE): every Rt2d add/mul rounds to float.
+// fr() forces that rounding on any target (a no-op on SSE2).
+static inline float32 fr(float32 x) { volatile float32 v = x; return v; }
 
 // ---------------------------------------------------------------- CTM
 void ctmSetIdentity(void) { ctm[ctmTop] = identity(); }
@@ -222,24 +230,52 @@ Path::lineto(float32 x, float32 y)
 	subAdd(&subs[numSubs-1], x, y);
 }
 
+// Adaptive midpoint subdivision, at most 7 levels (game: 0x563e70). Flat = both control points closer to the chord p0-p3
+// than sqrt(tol); the chord end is then emitted.
+static void
+flatten(Path::Sub *s, float32 tol, const float32 *p, int depth)
+{
+	float32 ex = p[6]-p[0], ey = p[7]-p[1], l2 = ex*ex + ey*ey;
+	bool flat = true;
+	for(int k = 1; k <= 2; k++){
+		float32 dx = p[2*k]-p[0], dy = p[2*k+1]-p[1], dot = dx*ex + dy*ey;
+		if(!((dx*dx + dy*dy - tol)*l2 < dot*dot)) flat = false;
+	}
+	if(flat || depth >= 7){ subAdd(s, p[6], p[7]); return; }
+	float32 a[2], b[2], c[2], ab[2], bc[2], m[2], l[8], r[8];
+	for(int k = 0; k < 2; k++){
+		a[k] = (p[k]+p[2+k])*0.5f; b[k] = (p[2+k]+p[4+k])*0.5f; c[k] = (p[4+k]+p[6+k])*0.5f;
+		ab[k] = (a[k]+b[k])*0.5f; bc[k] = (b[k]+c[k])*0.5f; m[k] = (ab[k]+bc[k])*0.5f;
+		l[k] = p[k]; l[2+k] = a[k]; l[4+k] = ab[k]; l[6+k] = m[k];
+		r[k] = m[k]; r[2+k] = bc[k]; r[4+k] = c[k]; r[6+k] = p[6+k];
+	}
+	flatten(s, tol, l, depth+1);
+	flatten(s, tol, r, depth+1);
+}
+
 void
 Path::curveto(float32 x1, float32 y1, float32 x2, float32 y2, float32 x3, float32 y3)
 {
 	if(numSubs == 0) moveto(x1, y1);
 	Sub *s = &subs[numSubs-1];
-	float32 x0 = s->xy[2*s->n-2], y0 = s->xy[2*s->n-1];
-	for(int i = 1; i <= 16; i++){	// GUESS: fixed 16 segments instead of the game's tolerance based flattening
-		float32 t = i/16.0f, u = 1-t;
-		subAdd(s, u*u*u*x0 + 3*u*u*t*x1 + 3*u*t*t*x2 + t*t*t*x3,
-		          u*u*u*y0 + 3*u*u*t*y1 + 3*u*t*t*y2 + t*t*t*y3);
-		s = &subs[numSubs-1];
-	}
+	float32 p[8] = { s->xy[2*s->n-2], s->xy[2*s->n-1], x1, y1, x2, y2, x3, y3 };
+	// tol = squared length of half a device pixel mapped into CTM space (inverse of the CTM's linear part)
+	float32 m = unit(), px = 0.5f*viewW/rasterW/m;
+	Affine t = ctm[ctmTop];
+	float32 det = t.a*t.d - t.b*t.c;
+	if(fabsf(det) < 1e-20f) t = identity(), det = 1;	// GUESS: singular CTM -> identity
+	float32 vx = (t.d*px)/det, vy = (-t.b*px)/det;
+	flatten(s, vx*vx + vy*vy, p, 0);
 }
 
 void
 Path::close(void)
 {
-	if(numSubs) subs[numSubs-1].closed = 1;
+	if(numSubs == 0) return;
+	Sub *s = &subs[numSubs-1];
+	// the game appends a closing lineto when the last point differs from the first
+	if(s->n > 0 && (s->xy[2*s->n-2] != s->xy[0] || s->xy[2*s->n-1] != s->xy[1])) subAdd(s, s->xy[0], s->xy[1]);
+	s->closed = 1;
 }
 
 void
@@ -269,16 +305,14 @@ deviceSetView(float32 w, float32 h, int32 rw_, int32 rh_)
 bool32
 deviceSetCamera(Camera *cam)
 {
+	if(cam == nil){ devCamera = nil; return 0; }	// the game clears the camera and returns 0
+	if(cam->frameBuffer == nil) return 0;	// ... and keeps the previous camera
 	devCamera = cam;
-	if(cam == nil) return 1;
-	if(cam->frameBuffer == nil) return 0;
 	// the game stores 2*viewWindow as the extent and the frame buffer size as raster size
 	deviceSetView(cam->viewWindow.x*2, cam->viewWindow.y*2, cam->frameBuffer->width, cam->frameBuffer->height);
 	// DEVIATION: the game also replaces the camera's frame-sync callback (0x563120); not needed here
 	return 1;
 }
-
-static float32 unit(void) { return viewH < viewW ? viewH : viewW; }
 
 void
 deviceToScreen(float32 x, float32 y, float32 *sx, float32 *sy)
@@ -399,7 +433,14 @@ Font::streamRead(Stream *stream, bool32 requireTextures)
 	// textures are looked up in the font texture dictionary (Rt2dFontTexDictionarySet)
 	for(i = 0; i < n; i++){
 		Texture *t = fontDict ? fontDict->find(f->texNames[i]) : nil;
-		if(t){ t->addRef(); f->tex[i] = t; }
+		if(t) t->addRef();
+		else if(requireTextures){	// the game: dictionary hit, else the normal texture read path (disk) with the dictionary current
+			TexDictionary *cur = TexDictionary::getCurrent();
+			if(fontDict) TexDictionary::setCurrent(fontDict);
+			t = Texture::read(f->texNames[i], nil);
+			TexDictionary::setCurrent(cur);
+		}
+		f->tex[i] = t;
 		if(requireTextures && (t == nil || t->raster == nil)) FAIL("RWF: texture '%s' not found", f->texNames[i]);
 	}
 #undef FAIL
@@ -454,12 +495,12 @@ decode(const Font *f, const void *text, std::vector<uint32> &out)
 static float32
 spanWidth(const Font *f, const uint32 *c, size_t from, size_t to)
 {
-	double w = 0.0;
+	float32 w = 0.0f;	// float per operation like the game: w = (advance + intergap) + w
 	for(size_t i = from; i < to && c[i]; i++){
 		int32 g = f->glyphIndex(c[i]);
-		if(g >= 0) w = (double)f->glyphs[g].advance + f->intergap + w;
+		if(g >= 0) w = fr(fr(f->glyphs[g].advance + f->intergap) + w);
 	}
-	return (float32)w;
+	return w;
 }
 
 float32
@@ -503,11 +544,17 @@ imSink(void*, Texture *tex, const Vertex *q, int32 nq)
 	rw::SetRenderState(rw::TEXTUREFILTER, tex->filterAddressing & 0xFF);
 	uint32 cull = rw::GetRenderState(rw::CULLMODE);
 	uint32 ztest = rw::GetRenderState(rw::ZTESTENABLE);
+	uint32 zwrite = rw::GetRenderState(rw::ZWRITEENABLE);
+	uint32 valpha = rw::GetRenderState(rw::VERTEXALPHA);
 	rw::SetRenderState(rw::CULLMODE, rw::CULLNONE);	// GUESS: the game relies on whatever state its caller set up
-	rw::SetRenderState(rw::ZTESTENABLE, 0);
+	rw::SetRenderState(rw::ZTESTENABLE, 0);	// the game's callers disable both around HUD/menu text
+	rw::SetRenderState(rw::ZWRITEENABLE, 0);
+	rw::SetRenderState(rw::VERTEXALPHA, 1);	// the game's Im3D path blends vertex alpha (no ALLOPAQUE)
 	im2d::RenderIndexedPrimitive(rw::PRIMTYPETRILIST, verts, nq*4, idx, nq*6);
 	rw::SetRenderState(rw::CULLMODE, cull);
 	rw::SetRenderState(rw::ZTESTENABLE, ztest);
+	rw::SetRenderState(rw::ZWRITEENABLE, zwrite);
+	rw::SetRenderState(rw::VERTEXALPHA, valpha);
 }
 #endif
 
@@ -528,7 +575,9 @@ flushBatch(void)
 static uint8
 lerpc(uint8 a, uint8 b, float32 t)
 {
-	return (uint8)((int32)lrintf((float32)a + ((float32)b - (float32)a)*t) & 0xFF);
+	// the game converts with fistp under RC=chop: truncation, one float rounding per operation
+	float32 d = fr(fr((float32)b - (float32)a)*t);
+	return (uint8)((int32)fr((float32)a + d) & 0xFF);
 }
 
 static void
@@ -551,7 +600,8 @@ showSpan(Font *f, const uint32 *c, size_t from, size_t to, float32 height, V2d *
 		if(batchQuads && (tex != batchTex || batchQuads >= MAXBATCH)) flushBatch();
 		batchTex = tex;
 		Vertex *v = &batch[batchQuads*4];
-		float32 xs[2] = { acc, acc + g->advance }, ts[2] = { acc*invW, (acc + g->advance)*invW };
+		float32 xr = fr(acc + g->advance);
+		float32 xs[2] = { acc, xr }, ts[2] = { fr(acc*invW), fr(xr*invW) };
 		for(int k = 0; k < 4; k++){	// 0=BL 1=TL 2=BR 3=TR
 			int right = k >> 1, top = k & 1;
 			float32 px, py;
@@ -569,10 +619,10 @@ showSpan(Font *f, const uint32 *c, size_t from, size_t to, float32 height, V2d *
 			}
 		}
 		batchQuads++;
-		acc += f->intergap + g->advance;
+		acc = fr(fr(acc + f->intergap) + g->advance);
 	}
 	flushBatch();
-	pos->x += acc*height;
+	pos->x = fr(fr(acc*height) + pos->x);
 	ctmPop();
 }
 
@@ -615,7 +665,7 @@ flowCore(Font *f, const void *text, float32 height, const float32 *rect, int32 f
 			first = true;
 			if(ch == 10){ brk = cur+1; lastW = w; }
 		}
-		if(g >= 0) w = (float32)((double)f->glyphs[g].advance + f->intergap + w);
+		if(g >= 0) w = fr(fr(f->glyphs[g].advance + f->intergap) + w);
 		if(lineW < w || ch == 10){
 			pos.x = (lineW - lastW)*align + rect[0]; pos.y = ly;
 			if(lines) (*lines)++;

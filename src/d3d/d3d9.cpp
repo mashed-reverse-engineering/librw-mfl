@@ -741,19 +741,11 @@ readNativeTexture(Stream *stream)
 	Raster *raster;
 	D3dRaster *ext;
 
-	if(flags & 2){
-		RWERROR((ERR_GENERAL, "D3D9 cube maps are not supported"));
-		tex->destroy();
-		return nil;
-	}
-
 	if(flags & 8){
 		// is compressed
+		assert((flags & 2) == 0 && "Can't have cube maps yet");
 		raster = Raster::create(width, height, depth, format | type | Raster::DONTALLOCATE, PLATFORM_D3D9);
-		if(raster == nil){
-			tex->destroy();
-			return nil;
-		}
+		assert(raster);
 		ext = GETD3DRASTEREXT(raster);
 		ext->format = d3dformat;
 		ext->hasAlpha = flags & 1;
@@ -761,19 +753,14 @@ readNativeTexture(Stream *stream)
 		                             raster->format & Raster::MIPMAP ? numLevels : 1,
 		                             0,
 		                             ext->format);
-		if(ext->texture == nil){
-			tex->raster = raster;
-			tex->destroy();
-			return nil;
-		}
+		assert(ext->texture);
 		raster->flags &= ~Raster::DONTALLOCATE;
 		ext->customFormat = 1;
+	}else if(flags & 2){
+		assert(0 && "Can't have cube maps yet");
 	}else{
 		raster = Raster::create(width, height, depth, format | type, PLATFORM_D3D9);
-		if(raster == nil){
-			tex->destroy();
-			return nil;
-		}
+		assert(raster);
 		ext = GETD3DRASTEREXT(raster);
 	}
 	tex->raster = raster;
@@ -787,24 +774,14 @@ readNativeTexture(Stream *stream)
 
 	uint32 size;
 	uint8 *data;
-	bool uploadOk = true;
 	for(int32 i = 0; i < numLevels; i++){
 		size = stream->readU32();
 		if(i < raster->getNumLevels()){
 			data = raster->lock(i, Raster::LOCKWRITE|Raster::LOCKNOFETCH);
-			if(data){
-				stream->read8(data, size);
-				raster->unlock(i);
-			}else{
-				stream->seek(size);
-				uploadOk = false;
-			}
+			stream->read8(data, size);
+			raster->unlock(i);
 		}else
 			stream->seek(size);
-	}
-	if(!uploadOk){
-		tex->destroy();
-		return nil;
 	}
 	return tex;
 }

@@ -884,6 +884,7 @@ struct WorldSector
 	Triangle *triangles;
 	uint8 *collision;	// raw payload of the collision plugin (0x11D), not interpreted yet
 	uint32 collisionSize;
+	struct CollisionTree *collTree;	// parsed from collision (rwcollision.h), nil if absent
 	World *world;
 	Geometry *geometry;	// built lazily by getGeometry for rendering
 	Atomic *atomic;
@@ -959,6 +960,9 @@ struct TexDictionary
 	static TexDictionary *streamRead(Stream *stream);
 	void streamWrite(Stream *stream);
 	uint32 streamGetSize(void);
+	// platform independent TXD (chunk 0x23), src/pitexd.cpp
+	static TexDictionary *streamReadPI(Stream *stream);
+	static TexDictionary *readPI(const uint8 *data, uint32 size);
 
 	static void setCurrent(TexDictionary *txd);
 	static TexDictionary *getCurrent(void);

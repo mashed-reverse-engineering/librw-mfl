@@ -11,6 +11,7 @@
 #include "rwengine.h"
 #include "rwanim.h"
 #include "rwplugins.h"
+#include "rwcollision.h"
 
 #define PLUGIN_ID ID_WORLD
 
@@ -74,6 +75,8 @@ destroyNode(BspNode *n)
 			rwFree(s->texCoords[i]);
 		rwFree(s->triangles);
 		rwFree(s->collision);
+		if(s->collTree)
+			s->collTree->destroy();
 	}else{
 		PlaneSector *p = (PlaneSector*)n;
 		destroyNode(p->left);
@@ -338,6 +341,9 @@ readSectorExtension(Stream *stream, WorldSector *sec, int32 length)
 			sec->collision = rwNewT(uint8, h.length, MEMDUR_EVENT | ID_WORLD);
 			sec->collisionSize = h.length;
 			stream->read8(sec->collision, h.length);
+			sec->collTree = CollisionTree::fromBlob(sec->collision, h.length, sec->numTriangles);
+			if(sec->collTree == nil)
+				return false;
 		}else if(h.type == 0x120 && h.length >= 4){
 			sec->matFX = stream->readI32();
 			stream->seek(h.length-4);
