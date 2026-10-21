@@ -1,0 +1,347 @@
+Subject: [PATCH] PI texdict review fixes (delta on top of 0009)
+
+4 bit = one index per byte, opaque palettised textures get PAL|C888 (d3d rasterFromImage accepts it), auto mipmaps for single images with filter not 1/2, legacy deviceId 0 layout, UTF-16 names, version window, gamma skipped (engine gamma 1.0).
+---
+diff --git a/src/pitexd.cpp b/src/pitexd.cpp
+--- a/src/pitexd.cpp
++++ b/src/pitexd.cpp
+@@ -4,11 +4,14 @@
+ //
+ //   chunk 0x23: u16 numTextures, u16 deviceId
+ //     numTextures x {
++//     (deviceId == 0: legacy layout, see readTexture)
+ //       u32 numImages (mip levels, each half the size of the previous one, largest first)
+ //       numImages x chunk 0x18 { chunk 0x01 (16 bytes): u32 width, height, depth (4/8/32), stride;
+ //                                pixels (height*stride); palette (4<<depth bytes, depth <= 8 only, AFTER the pixels) }
+ //       chunk 0x06 { STRUCT u32 filter|addressing, STRING name, STRING mask, EXTENSION } }
+ //
++// 4 bit images are ONE palette index (0..15) per byte, rows padded to a multiple of 4 (like 8 bit), not nibble packed.
++// Gamma correction (done by the original on every image) is skipped: the engine gamma is 1.0, the table is the identity.
+ // The reader never trusts sizes: every access is bounds checked and the chunk sizes must add up exactly.
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -49,31 +52,50 @@
+ 	}
+ };
+ 
+-#define FAIL(...) do{ RWERROR((ERR_GENERAL, __VA_ARGS__)); goto fail; }while(0)
+-
+-static void
+-copyName(char *dst, const uint8 *src, uint32 len)
++// version of a chunk stamp
++static uint32 stampVersion(uint32 s){ return ((s >> 14) & 0x3FF00) + 0x30000 | ((s >> 16) & 0x3F); }
++static bool versionOK(uint32 s){ uint32 v = stampVersion(s); return v >= 0x35000 && v <= 0x37002; }
++
++// Reads a string chunk (0x02 bytes, 0x13 UTF-16 -> low bytes), skipping other chunks in front. Result is cut at the
++// first NUL and truncated to 31 chars. Longer than 128 bytes is rejected (the original overflows its buffer).
++static bool
++readString(Rd &r, char *dst)
+ {
+-	uint32 i;
++	uint32 t, size, stamp, i;
++	for(;;){
++		if(!r.u32(&t) || !r.u32(&size) || !r.u32(&stamp) || size > r.n - r.pos) return false;
++		if(t == ID_STRING || t == 0x13) break;
++		r.pos += size;
++	}
++	if(size > 128 || !versionOK(stamp)) return false;
+ 	memset(dst, 0, 32);
+-	for(i = 0; i < len && i < 31 && src[i]; i++)
+-		dst[i] = src[i];
++	if(t == 0x13){
++		if(size & 1) return false;
++		for(i = 0; i < size/2 && i < 31 && r.p[r.pos + 2*i]; i++)
++			dst[i] = r.p[r.pos + 2*i];
++	}else
++		for(i = 0; i < size && i < 31 && r.p[r.pos + i]; i++)
++			dst[i] = r.p[r.pos + i];
++	r.pos += size;
++	return true;
+ }
+ 
++#define FAIL(...) do{ RWERROR((ERR_GENERAL, __VA_ARGS__)); goto fail; }while(0)
++
+ // Builds a librw Image for one mip level; palette is shared (copied from level 0)
+ static Image*
+ makeImage(int32 w, int32 h, int32 depth, int32 stride, const uint8 *pix, const uint8 *pal)
+ {
+ 	Image *img = Image::create(w, h, depth);
+ 	if(img == nil) return nil;
+-	img->allocate();	// stride = w*bpp; 4 bit images are expanded to one index per byte (librw convention)
++	img->allocate();	// stride = w*bpp; 4 bit images hold one index per byte, like the file
+ 	for(int32 y = 0; y < h; y++){
+ 		const uint8 *s = pix + (size_t)y*stride;
+ 		uint8 *d = img->pixels + (size_t)y*img->stride;
+-		if(depth == 32) memcpy(d, s, (size_t)w*4);
+-		else if(depth == 8) memcpy(d, s, w);
+-		else for(int32 x = 0; x < w; x++)
+-			d[x] = (x&1) ? s[x/2]>>4 : s[x/2]&15;	// low nibble = left pixel
++		memcpy(d, s, (size_t)w*(depth == 32 ? 4 : 1));
++		if(depth == 4)
++			for(int32 x = 0; x < w; x++)
++				if(s[x] > 15){ img->destroy(); return nil; }	// padding bytes past w may be garbage, not checked
+ 	}
+ 	if(depth <= 8) memcpy(img->palette, pal, (size_t)4 << depth);
+ 	return img;
+@@ -82,9 +104,9 @@
+ struct Level { int32 w, h, stride; const uint8 *pix; };
+ 
+ static Texture*
+-readTexture(Rd &r)
++readTexture(Rd &r, bool legacy)
+ {
+-	uint32 numImages, size, v, flags, len;
++	uint32 numImages, size, v, flags = 0, len;
+ 	Level lv[MAXLEVELS];
+ 	int32 depth = 0;
+ 	const uint8 *pal = nil;
+@@ -95,8 +117,16 @@
+ 	uint32 extPos = 0, extEnd = 0;
+ 	int32 fmt, w0, h0, d0, rfmt, i;
+ 
++	if(legacy){	// 72 byte record: name[32], mask[32], i32 numImages, u32 flags; no texture chunk
++		if(r.n - r.pos < 72) FAIL("PITexD: truncated legacy record");
++		memset(name, 0, 32); memset(mask, 0, 32);
++		for(i = 0; i < 31 && r.p[r.pos + i]; i++) name[i] = r.p[r.pos + i];
++		for(i = 0; i < 31 && r.p[r.pos + 32 + i]; i++) mask[i] = r.p[r.pos + 32 + i];
++		r.pos += 64;
++	}
+ 	if(!r.u32(&numImages) || numImages < 1 || numImages > MAXLEVELS)
+ 		FAIL("PITexD: bad mip level count");
++	if(legacy) r.u32(&flags);
+ 	for(i = 0; i < (int32)numImages; i++){
+ 		uint32 st[4], palsz, end;
+ 		if(!r.hdr(ID_IMAGE, &size)) FAIL("PITexD: expected image chunk");
+@@ -108,7 +138,7 @@
+ 		if(i == 0) depth = st[2];
+ 		else if((int32)st[2] != depth || (int32)st[0] != (lv[i-1].w > 1 ? lv[i-1].w/2 : 1) ||
+ 		        (int32)st[1] != (lv[i-1].h > 1 ? lv[i-1].h/2 : 1)) FAIL("PITexD: bad mip chain");
+-		uint32 minStride = st[2] == 32 ? st[0]*4 : st[2] == 8 ? st[0] : (st[0]+1)/2;
++		uint32 minStride = st[2] == 32 ? st[0]*4 : st[2] == 8 ? st[0] : st[0];
+ 		if(st[3] < minStride || st[3] > 4*MAXDIM) FAIL("PITexD: bad stride");
+ 		palsz = st[2] <= 8 ? 4u << st[2] : 0;
+ 		uint32 pixsz = st[3]*st[1];	// <= 32768*8192, no overflow
+@@ -122,14 +152,12 @@
+ 		}
+ 		r.pos = end;
+ 	}
+-	if(!r.hdr(ID_TEXTURE, &size)) FAIL("PITexD: expected texture chunk");
+-	{
+-		uint32 end = r.pos + size;
+-		if(!r.hdr(ID_STRUCT, &v) || v != 4 || !r.u32(&flags)) FAIL("PITexD: bad texture struct");
+-		if(!r.hdr(ID_STRING, &len) || len > 128) FAIL("PITexD: bad texture name");
+-		copyName(name, r.p + r.pos, len); r.pos += len;
+-		if(!r.hdr(ID_STRING, &len) || len > 128) FAIL("PITexD: bad mask name");
+-		copyName(mask, r.p + r.pos, len); r.pos += len;
++	if(!legacy && !r.hdr(ID_TEXTURE, &size)) FAIL("PITexD: expected texture chunk");
++	if(!legacy){
++		uint32 end = r.pos + size, stamp;
++		if(!r.hdr(ID_STRUCT, &v, &stamp) || v != 4 || !versionOK(stamp) || !r.u32(&flags)) FAIL("PITexD: bad texture struct");
++		if(!readString(r, name)) FAIL("PITexD: bad texture name");
++		if(!readString(r, mask)) FAIL("PITexD: bad mask name");
+ 		extPos = r.pos;
+ 		if(!r.hdr(ID_EXTENSION, &len)) FAIL("PITexD: expected extension chunk");
+ 		r.pos += len;
+@@ -141,7 +169,12 @@
+ 	img = makeImage(lv[0].w, lv[0].h, depth, lv[0].stride, lv[0].pix, pal);
+ 	if(img == nil) goto fail;
+ 	if(!Raster::imageFindRasterFormat(img, Raster::TEXTURE, &w0, &h0, &d0, &fmt)) goto fail;
+-	rfmt = fmt | (numImages > 1 ? Raster::MIPMAP : 0);
++	// opaque palettised textures get no alpha format (original rule, see MFL_NOTES.md); d3d rasterFromImage accepts PAL|C888
++	if((fmt & (Raster::PAL4|Raster::PAL8)) && (fmt & 0xF00) == Raster::C8888 && !img->hasAlpha())
++		fmt = (fmt & ~0xF00) | Raster::C888;
++	// 2+ images: MIPMAP; 1 image: none for filter NEAREST/LINEAR, else MIPMAP|AUTOMIPMAP (driver generates the levels)
++	rfmt = fmt | (numImages > 1 ? Raster::MIPMAP :
++	              ((flags&0xFF) == 1 || (flags&0xFF) == 2) ? 0 : Raster::MIPMAP|Raster::AUTOMIPMAP);
+ 	ras = Raster::create(w0, h0, d0, rfmt);
+ 	if(ras == nil) goto fail;
+ 	if(ras->setFromImage(img) == nil) goto fail;
+@@ -162,10 +195,16 @@
+ 	ras = nil;
+ 	memcpy(tex->name, name, 32);
+ 	memcpy(tex->mask, mask, 32);
+-	if((flags & 0xF000) == 0)	// V addressing 0: copy U (as Texture::streamRead)
++	if(legacy){	// U == V == 0 -> WRAP; a single 0 copies the other
++		uint32 u = (flags >> 8) & 0xF, vv = (flags >> 12) & 0xF;
++		if(!u && !vv) u = vv = 1;
++		else if(!u) u = vv;
++		else if(!vv) vv = u;
++		flags = (flags & 0xFF) | u << 8 | vv << 12;
++	}else if((flags & 0xF000) == 0)	// V addressing 0: copy U (as Texture::streamRead)
+ 		flags |= (flags & 0xF00) << 4;
+ 	tex->filterAddressing = flags & 0xFFFF;
+-	if(extEnd - extPos > 12){	// plugin data (empty in all shipped files)
++	if(!legacy && extEnd - extPos > 12){	// plugin data (empty in all shipped files)
+ 		StreamMemory sm;
+ 		sm.open((uint8*)r.p + extPos, extEnd - extPos);
+ 		bool32 ok = Texture::s_plglist.streamRead(&sm, tex);
+@@ -199,11 +238,12 @@
+ 		return nil;
+ 	}
+ 	r.u32(&v);
+-	uint32 numTex = v & 0xFFFF;	// deviceId (v >> 16) is 1 in all shipped files, ignored
++	uint32 numTex = v & 0xFFFF;
++	bool legacy = (v >> 16) == 0;	// deviceId 0: legacy layout (not in the shipped files), else current
+ 	txd = TexDictionary::create();
+ 	if(txd == nil) return nil;
+ 	for(uint32 i = 0; i < numTex; i++){
+-		Texture *tex = readTexture(r);
++		Texture *tex = readTexture(r, legacy);
+ 		if(tex == nil){
+ 			txd->destroy();	// destroys the textures added so far
+ 			return nil;
+diff --git a/tests/pitxd_test.cpp b/tests/pitxd_test.cpp
+--- a/tests/pitxd_test.cpp
++++ b/tests/pitxd_test.cpp
+@@ -29,6 +29,7 @@
+ 	std::vector<Buf> lv;	// per level pixel data, tightly packed
+ 	Buf pal;
+ 	int bpp, w, h;
++	int unlocks;	// levels written (used by the differential dump)
+ };
+ static std::map<Raster*, MemRas> g_ras;
+ static int g_lockedLevel = -1;
+@@ -36,6 +37,7 @@
+ static Raster *mCreate(Raster *r)
+ {
+ 	MemRas m;
++	m.unlocks = 0;
+ 	m.bpp = (r->format & (Raster::PAL4|Raster::PAL8)) ? 1 : 4;
+ 	m.w = r->width; m.h = r->height;
+ 	int n = (r->format & Raster::MIPMAP) ? Raster::calculateNumLevels(r->width, r->height) : 1;
+@@ -63,6 +65,7 @@
+ }
+ static void mUnlock(Raster *r, int32)
+ {
++	g_ras[r].unlocks++;
+ 	r->width = r->originalWidth; r->height = r->originalHeight; r->stride = r->originalStride; r->pixels = nil;
+ }
+ static uint8 *mLockPal(Raster *r, int32) { return g_ras[r].pal.data(); }
+@@ -71,7 +74,8 @@
+ static bool32 mFindFormat(Image *img, int32 type, int32 *w, int32 *h, int32 *d, int32 *f)
+ {
+ 	*w = img->width; *h = img->height; *d = img->depth;
+-	*f = (img->depth == 8 ? Raster::PAL8 : img->depth == 4 ? Raster::PAL4 : 0) | Raster::C8888 | type;
++	// like the d3d backend: palettised -> PAL|C8888 (the PI reader downgrades opaque ones), 32 bit -> C888 when opaque
++	*f = (img->depth == 8 ? Raster::PAL8 : img->depth == 4 ? Raster::PAL4 : 0) | (img->depth == 32 && !img->hasAlpha() ? Raster::C888 : Raster::C8888) | type;
+ 	return img->depth == 32 || img->depth == 8 || img->depth == 4;
+ }
+ static bool32 mFromImage(Raster *r, Image *img)
+@@ -190,8 +194,15 @@
+ 		const RLevel &l0 = r.lv[0];
+ 		int pal = l0.depth == 8 ? Raster::PAL8 : l0.depth == 4 ? Raster::PAL4 : 0;
+ 		CHECK((uint32_t)ras->width == l0.w && (uint32_t)ras->height == l0.h, "%s dims", t->name);
+-		CHECK((ras->format & (Raster::PAL4|Raster::PAL8|0xF00)) == (pal | Raster::C8888), "%s format %x", t->name, ras->format);
+-		CHECK(((ras->format & Raster::MIPMAP) != 0) == (r.lv.size() > 1), "%s mip flag", t->name);
++		// alpha format only if the image really has alpha (palette entry of a USED index / 32 bit pixel alpha != 0xFF)
++		bool alpha = false;
++		for(uint32_t y = 0; y < l0.h; y++)
++			for(uint32_t x = 0; x < l0.w; x++)
++				alpha |= pal ? l0.pal[l0.pix[y*l0.stride + x]*4 + 3] != 0xFF : l0.pix[y*l0.stride + x*4 + 3] != 0xFF;
++		CHECK((ras->format & (Raster::PAL4|Raster::PAL8|0xF00)) == (pal | (alpha ? Raster::C8888 : Raster::C888)), "%s format %x", t->name, ras->format);
++		bool autoMip = r.lv.size() == 1 && (r.flags & 0xFF) != 1 && (r.flags & 0xFF) != 2;
++		CHECK(((ras->format & Raster::MIPMAP) != 0) == (r.lv.size() > 1 || autoMip), "%s mip flag", t->name);
++		CHECK(((ras->format & Raster::AUTOMIPMAP) != 0) == autoMip, "%s automip flag", t->name);
+ 		CHECK(m.lv.size() >= r.lv.size(), "%s levels %zu < %zu", t->name, m.lv.size(), r.lv.size());
+ 		if(r.lv.size() > 1){
+ 			T.mipTex++;
+@@ -211,7 +222,7 @@
+ 					const uint8_t *dst = &m.lv[k][((size_t)y*l.w + x)*m.bpp];
+ 					if(l.depth == 32){ if(memcmp(src + x*4, dst, 4)) same = false; }
+ 					else if(l.depth == 8){ if(src[x] != *dst) same = false; }
+-					else if(((x&1) ? src[x/2]>>4 : src[x/2]&15) != *dst) same = false;
++					else if(src[x] != *dst) same = false;	// 4 bit: one index per byte
+ 					if(!same) break;
+ 				}
+ 			CHECK(same, "%s level %zu pixels differ", t->name, k);
+@@ -223,6 +234,68 @@
+ 	return errs.empty();
+ }
+ 
++
++// ---------------------------------------------------------------- synthetic dictionaries (legacy layout, UTF-16 names, auto mips, 4 bit)
++static void P32(Buf &b, uint32_t v) { for(int i = 0; i < 4; i++) b.push_back(v >> 8*i); }
++static void CH(Buf &b, uint32_t t, const Buf &body, uint32_t stamp = 0x1C02000A) { P32(b, t); P32(b, body.size()); P32(b, stamp); b.insert(b.end(), body.begin(), body.end()); }
++static Buf image4(uint32_t w, uint32_t h, bool alphaUsed, bool alphaUnused)
++{
++	uint32_t st = (w + 3) & ~3u;
++	Buf s, body, data, out;
++	P32(s, w); P32(s, h); P32(s, 4); P32(s, st);
++	CH(body, 1, s);
++	for(uint32_t y = 0; y < h; y++) for(uint32_t x = 0; x < st; x++) data.push_back(x < w ? (x + y*3) & 15 : 0xEE);
++	size_t pal = data.size();
++	for(int i = 0; i < 16; i++) P32(data, 0xFF000000u | i*0x010203);
++	if(alphaUsed) data[pal + 3] = 0x80;		// entry 0 is used by pixel (0,0)
++	if(alphaUnused) data[pal + 4*15 + 3] = 0x80;	// entry 15 is not used by a 5x2 image (indices (x+3y)&15 = 0..4,3..7)
++	body.insert(body.end(), data.begin(), data.end());
++	CH(out, 0x18, body);
++	return out;
++}
++static bool synth(std::vector<std::string> &errs)
++{
++	for(int variant = 0; variant < 4; variant++){
++		bool legacy = variant == 3, wide = variant == 1, aused = variant == 2;
++		Buf d, tx, str;
++		Buf img = image4(5, 2, aused, variant == 0);
++		P32(d, 1 | (legacy ? 0u : 1u << 16));
++		if(legacy){
++			char rec[64] = "legacy"; memset(rec + 6, 0, 58); strcpy(rec + 32, "msk");
++			d.insert(d.end(), rec, rec + 64); P32(d, 1); P32(d, 0x0004);	// filter 4, U = V = 0
++		}else P32(d, 1);
++		d.insert(d.end(), img.begin(), img.end());
++		if(!legacy){
++			Buf st; P32(st, 0x0204 /*filter 4, U 2, V 0*/);
++			CH(tx, 1, st, 0x1803FFFF);
++			Buf junk(8, 0); CH(tx, 0x99, junk);	// skipped chunk before the name
++			if(wide){ Buf u; const char *n = "wide"; for(int i = 0; n[i]; i++){ u.push_back(n[i]); u.push_back(0); } CH(tx, 0x13, u); }
++			else { Buf n = { 'n','a','m','e',0,0,0,0 }; CH(tx, 2, n); }
++			Buf m = { 0,0,0,0 }; CH(tx, 2, m);
++			Buf e; CH(tx, 3, e);
++			CH(d, 6, tx);
++			Buf e2; e2 = d; d.clear(); P32(d, 0x23); P32(d, 0); P32(d, 0x1C02000A);
++			d.insert(d.end(), e2.begin(), e2.end());
++		}else{ Buf e2 = d; d.clear(); P32(d, 0x23); P32(d, 0); P32(d, 0x1C02000A); d.insert(d.end(), e2.begin(), e2.end()); }
++		d[4] = (d.size() - 12) & 0xFF; d[5] = ((d.size() - 12) >> 8) & 0xFF;
++		TexDictionary *t = TexDictionary::readPI(d.data(), d.size());
++		if(!t){ errs.push_back("synthetic: load failed"); continue; }
++		Texture *x = Texture::fromDict(t->textures.link.next);
++		Raster *r = x->raster; MemRas &m = g_ras[r];
++		char b_[200];
++		#define SC(c, what) if(!(c)){ snprintf(b_, sizeof b_, "synthetic %d: %s", variant, what); errs.push_back(b_); }
++		SC(!strcmp(x->name, legacy ? "legacy" : wide ? "wide" : "name"), "name");
++		SC(x->filterAddressing == (legacy ? 0x1104 : 0x2204), "filterAddressing");
++		SC((r->format & Raster::AUTOMIPMAP) && (r->format & Raster::MIPMAP), "auto mipmap flags (single image, filter 4)");
++		SC((r->format & (Raster::PAL4|0xF00)) == (Raster::PAL4 | (aused ? Raster::C8888 : Raster::C888)), "opaque rule");
++		bool pix = true;
++		for(int y = 0; y < 2; y++) for(int xx = 0; xx < 5; xx++) pix &= m.lv[0][y*5 + xx] == ((xx + y*3) & 15);
++		SC(pix, "4 bit pixels are one index per byte");
++		t->destroy(); gcRas();
++	}
++	return errs.empty();
++}
++
+ static uint64_t rng = 0x9E3779B97F4A7C15ull;
+ static uint32_t rnd() { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; return (uint32_t)(rng >> 16); }
+ 
+@@ -253,6 +326,7 @@
+ 	installDriver();
+ 	baseDicts = TexDictionary::numAllocated;
+ 	int fails = 0, skipped = 0;
++	{ std::vector<std::string> e; bool ok = synth(e); printf("%s synthetic (legacy, UTF-16, auto mip, 4 bit)\n", ok ? "PASS" : "FAIL"); for(auto &m : e) printf("    %s\n", m.c_str()); if(!ok) fails++; }
+ 	Totals T = {};
+ 	long fz = 0, fzok = 0;
+ 	for(int i = a; i < argc; i++){
+diff --git a/src/d3d/d3d.cpp b/src/d3d/d3d.cpp
+--- a/src/d3d/d3d.cpp
++++ b/src/d3d/d3d.cpp
+@@ -743,6 +743,10 @@
+ 
+ 	D3dRaster *natras = GETD3DRASTEREXT(raster);
+ 	int32 format = raster->format&(Raster::PAL8 | Raster::PAL4 | 0xF00);
++	// palettised rasters may be opaque (PAL|C888, chosen by the caller, e.g. the PI texdict reader); the palette
++	// is stored as is, only natras->hasAlpha differs. Treat like the alpha format here.
++	if((format & (Raster::PAL8 | Raster::PAL4)) && (format & 0xF00) == Raster::C888)
++		format = (format & ~0xF00) | Raster::C8888;
+ 	switch(image->depth){
+ 	case 32:
+ 		if(format == Raster::C8888)

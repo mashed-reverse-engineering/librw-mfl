@@ -1,0 +1,37 @@
+Subject: [PATCH] MashedFormats: PI texdict 4 bit images are one index per byte (not nibble packed)
+Apply in /home/daniel/git/mashed/MashedFormats with: patch -p1 < this file
+---
+--- a/pitexd.py
++++ b/pitexd.py
+@@ -12,7 +12,7 @@
+       u32 numImages                                     number of mip levels
+       numImages x chunk 0x18 (IMAGE)
+         chunk 0x01 (STRUCT, 16 bytes): u32 width, height, depth, stride
+-        pixels   height * stride bytes (8/4 bit indexed, or 32 bit RGBA)
++        pixels   height * stride bytes (8/4 bit indexed, one index per byte for both, or 32 bit RGBA)
+         palette  (1 << depth) RGBA entries AFTER the pixels, only if depth <= 8
+       chunk 0x06 (TEXTURE)
+         chunk 0x01 (STRUCT, 4 bytes): u32 filtering | addressing  (low byte filter mode, bits 8..11 U, 12..15 V addressing)
+@@ -64,8 +64,8 @@
+         elif self.depth == 4:
+             for y in range(self.height):
+                 for x in range(self.width):
+-                    b = self.pixels[y * self.stride + x // 2]
+-                    i = ((b >> 4) if x & 1 else (b & 15)) * 4
++                    # 4 bit images are ONE index (0..15) per byte, rows padded to 4 (not nibble packed)
++                    i = (self.pixels[y * self.stride + x] & 15) * 4
+                     out += self.palette[i:i + 4]
+         else:
+             raise ValueError(f"unsupported depth {self.depth}")
+--- a/FORMATS.md
++++ b/FORMATS.md
+@@ -56,7 +56,8 @@
+     u32 numImages                       mip levels, each half the size of the previous (checked on all files)
+     numImages x chunk 0x18 (IMAGE)
+       chunk 0x01 (STRUCT, 16 bytes): u32 width, height, depth (4, 8 or 32), stride
+-      pixels: height * stride bytes (4 bit: two pixels per byte, low nibble = left pixel)
++      pixels: height * stride bytes (4 bit: ONE palette index 0..15 per byte like 8 bit, NOT nibble packed;
++                stride = width rounded up to 4, padding bytes may be garbage)
+       palette: (4 << depth) bytes = 2^depth RGBA entries (depth 4 or 8 only), stored AFTER the pixels
+     chunk 0x06 (TEXTURE)
+       chunk 0x01: u32 filtering | addressing (low byte filter mode, bits 8-11 U and 12-15 V addressing; 0x1104 typical)
