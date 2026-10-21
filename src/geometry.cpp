@@ -786,6 +786,10 @@ MaterialList::streamRead(Stream *stream, MaterialList *matlist)
 	Material *m;
 	for(int32 i = 0; i < numMat; i++){
 		if(indices[i] >= 0){
+			if(indices[i] >= matlist->numMaterials){	// corrupt file: forward reference
+				RWERROR((ERR_GENERAL, "bad material list index"));
+				goto fail;
+			}
 			m = matlist->materials[indices[i]];
 			m->addRef();
 		}else{

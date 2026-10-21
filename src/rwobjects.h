@@ -849,7 +849,51 @@ struct WorldLights
 	Light **locals;	// points, (soft)spots
 };
 
-// A bit of a stub right now
+// BSP world tree (clean-room, from the documented stream format; MFL_NOTES.md).
+// Node kinds share a leading isLeaf so a BspNode* can be tested and cast.
+struct BspNode
+{
+	int32 isLeaf;
+};
+
+// plane sector: splits space along an axis, children are either kind
+struct PlaneSector
+{
+	int32 isLeaf;		// 0
+	int32 type;		// 0 = x, 4 = y, 8 = z (RW plane type)
+	float32 value;
+	float32 leftValue, rightValue;	// bounds of the children along the axis
+	BspNode *left, *right;
+};
+
+// atomic sector: a leaf holding geometry (BSP triangle order is v0,v1,v2,mat)
+struct WorldSector
+{
+	int32 isLeaf;		// 1
+	int32 matIdBase;	// triangle matId + matIdBase indexes World::matList
+	int32 numTriangles, numVertices;
+	BBox bbox;		// tight box from the file, bbox.inf <= bbox.sup
+	BBox planeBBox;		// world box cut along the plane path (RpWorldSectorGetBBox semantics)
+	int32 unusedHdr;	// header word 9: garbage in the files, never test it
+	int32 matFX;		// extension 0x120 value: nonzero = MatFX pipeline on the render atomic
+	int32 numTexCoordSets;
+	V3d *vertices;
+	V3d *normals;		// nil unless NORMALS
+	RGBA *colors;		// nil unless PRELIT
+	TexCoords *texCoords[8];
+	Triangle *triangles;
+	uint8 *collision;	// raw payload of the collision plugin (0x11D), not interpreted yet
+	uint32 collisionSize;
+	World *world;
+	Geometry *geometry;	// built lazily by getGeometry for rendering
+	Atomic *atomic;
+
+	Geometry *getGeometry(void);
+	void render(void);
+};
+
+typedef WorldSector *(*WorldSectorCallBack)(WorldSector *sector, void *data);
+
 struct World
 {
 	PLUGINBASE
@@ -859,9 +903,26 @@ struct World
 	LinkList globalLights;	// these do not (type < 0x80)
 	LinkList clumps;
 
+	// BSP world (only set for worlds read from a stream)
+	MaterialList matList;
+	BspNode *root;
+	WorldSector **sectors;	// atomic sectors in stream order
+	int32 numSectors;
+	int32 numPlaneSectors;
+	int32 numTriangles, numVertices;
+	int32 colSectorSize;
+	uint32 format;
+	V3d invOrigin;
+	BBox bbox;		// bbox.inf <= bbox.sup
+
 	static int32 numAllocated;
 
-	static World *create(BBox *bbox = nil);	// TODO: should probably make this non-optional
+	static World *create(BBox *bbox = nil);
+	static World *streamRead(Stream *stream);	// chunk 0x0B
+	// iterate all atomic sectors; callback returns nil to stop
+	World *forAllWorldSectors(WorldSectorCallBack cb, void *data);
+	BBox *getBBox(void) { return &this->bbox; }
+	void renderSectors(Camera *cam);	// frustum culled, uses atomic rendering	// TODO: should probably make this non-optional
 	void destroy(void);
 	void addLight(Light *light);
 	void removeLight(Light *light);
