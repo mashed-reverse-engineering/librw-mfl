@@ -23,6 +23,7 @@ add_library(librw
     prim.cpp
     raster.cpp
     render.cpp
+    rt2d.cpp
     rwanim.h
     rwengine.h
     rwerror.h
@@ -31,6 +32,7 @@ add_library(librw
     rwplg.h
     rwplugins.h
     rwrender.h
+    rwrt2d.h
     rwuserdata.h
     skin.cpp
     texture.cpp
@@ -222,6 +224,7 @@ if(LIBRW_INSTALL)
             rwerror.h
             rwplg.h
             rwrender.h
+            rwrt2d.h
             rwengine.h
             rwpipeline.h
             rwobjects.h
