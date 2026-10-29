@@ -111,6 +111,30 @@ HAnimHierarchy::attach(void)
 {
 	for(int32 i = 0; i < this->numNodes; i++)
 		this->attachByIndex(i);
+	// RpHAnimHierarchyAttach also makes the root frame own the lookup
+	if(this->parentFrame)
+		HAnimData::get(this->parentFrame)->hierarchy = this;
+}
+
+void
+HAnimHierarchy::detach(void)
+{
+	for(int32 i = 0; i < this->numNodes; i++)
+		this->nodeInfo[i].frame = nil;
+}
+
+void
+HAnimHierarchy::detachByIndex(int32 idx)
+{
+	this->nodeInfo[idx].frame = nil;
+}
+
+// RpHAnimFrameSetHierarchy
+void
+HAnimHierarchy::setFrameHierarchy(Frame *f)
+{
+	HAnimData::get(f)->hierarchy = this;
+	this->parentFrame = f;
 }
 
 int32
@@ -148,21 +172,31 @@ HAnimHierarchy::find(Frame *f)
 	return HAnimHierarchy::find(f->child);
 }
 
+// RpHAnimHierarchyUpdateMatrices: evaluates the interpolated key frames into
+// one matrix per node (parent chain driven by the PUSH/POP node flags) and, if
+// asked to, writes the result into the attached frames.
+// unverified against the original: exact dirty-flag handling of the frames.
 void
 HAnimHierarchy::updateMatrices(void)
 {
-	// TODO: handle more (all!) cases
-
 	Matrix rootMat, animMat;
-	Matrix *curMat, *parentMat;
+	Matrix *curMat, *parentMat, *tmpMats = nil;
 	Matrix **sp, *stack[64];
 	Frame *frm, *parfrm;
 	int32 i;
 	AnimInterpolator *anim = this->interpolator;
 
-	sp = stack;
+	if(this->numNodes <= 0)
+		return;
 	curMat = this->matrices;
+	if(curMat == nil){		// NOMATRICES: scratch space, only the frames get the result
+		tmpMats = rwNewT(Matrix, this->numNodes, MEMDUR_FUNCTION | ID_HANIM);
+		if(tmpMats == nil)
+			return;
+		curMat = tmpMats;
+	}
 
+	sp = stack;
 	frm = this->parentFrame;
 	if(frm && (parfrm = frm->getParent()) && !(this->flags&LOCALSPACEMATRICES))
 		rootMat = *parfrm->getLTM();
@@ -174,23 +208,32 @@ HAnimHierarchy::updateMatrices(void)
 	for(i = 0; i < this->numNodes; i++){
 		anim->applyCB(&animMat, anim->getInterpFrame(i));
 
-		// TODO: here we could update local matrices
-
 		Matrix::mult(curMat, &animMat, parentMat);
 
-		// TODO: here we could update LTM
+		if(node->frame){
+			if(this->flags & UPDATEMODELLINGMATRICES){
+				node->frame->matrix = animMat;
+				node->frame->updateObjects();
+			}
+			if(this->flags & UPDATELTMS){
+				// bring the frame's own tree in sync first so that
+				// writing the LTM sticks until the next modification
+				node->frame->getLTM();
+				node->frame->ltm = *curMat;
+			}
+		}
 
-		if(node->flags & PUSH)
+		// ponytail: a malformed push/pop stream is clamped, not reported
+		if((node->flags & PUSH) && sp < &stack[64])
 			*sp++ = parentMat;
 		parentMat = curMat;
-		if(node->flags & POP)
+		if((node->flags & POP) && sp > stack)
 			parentMat = *--sp;
-		assert(sp >= stack);
-		assert(sp <= &stack[64]);
 
 		node++;
 		curMat++;
 	}
+	rwFree(tmpMats);
 }
 
 HAnimData*

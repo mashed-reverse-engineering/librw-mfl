@@ -869,6 +869,7 @@ struct PlaneSector
 // atomic sector: a leaf holding geometry (BSP triangle order is v0,v1,v2,mat)
 struct WorldSector
 {
+	PLUGINBASE		// sector plugin registry (RpWorldSectorRegisterPlugin*), chunks in the sector extension
 	int32 isLeaf;		// 1
 	int32 matIdBase;	// triangle matId + matIdBase indexes World::matList
 	int32 numTriangles, numVertices;
@@ -890,10 +891,18 @@ struct WorldSector
 	Atomic *atomic;
 
 	Geometry *getGeometry(void);
-	void render(void);
+	World *getWorld(void) { return this->world; }	// RpWorldSectorGetWorld
+	void render(void);		// RpWorldSectorRender: through the world's sector render callback
+	void renderDefault(void);	// the default callback
+	void enableMatFX(void);		// RpMatFXWorldSectorEnableEffects
+	static WorldSector *create(void);	// allocates with plugin data, constructed
+	void destroy(void);			// frees the sector only (not the tree link)
 };
 
 typedef WorldSector *(*WorldSectorCallBack)(WorldSector *sector, void *data);
+typedef void (*WorldSectorRenderCallBack)(WorldSector *sector);
+typedef Material *(*WorldMaterialCallBack)(Material *material, void *data);
+typedef Clump *(*WorldClumpCallBack)(Clump *clump, void *data);
 
 struct World
 {
@@ -915,6 +924,7 @@ struct World
 	uint32 format;
 	V3d invOrigin;
 	BBox bbox;		// bbox.inf <= bbox.sup
+	WorldSectorRenderCallBack sectorRenderCB;	// nil is set to the default in create()
 
 	static int32 numAllocated;
 
@@ -922,6 +932,15 @@ struct World
 	static World *streamRead(Stream *stream);	// chunk 0x0B
 	// iterate all atomic sectors; callback returns nil to stop
 	World *forAllWorldSectors(WorldSectorCallBack cb, void *data);
+	// RpWorldForAllMaterials: each material of the world's list once; callback returns nil to stop
+	World *forAllMaterials(WorldMaterialCallBack cb, void *data);
+	// RpWorldForAllClumps: callback returns nil to stop
+	World *forAllClumps(WorldClumpCallBack cb, void *data);
+	// RpWorldSet/GetSectorRenderCallBack; nil restores the default
+	World *setSectorRenderCallBack(WorldSectorRenderCallBack cb);
+	WorldSectorRenderCallBack getSectorRenderCallBack(void) { return this->sectorRenderCB; }
+	// RpWorldInstance: builds the render atomic of every sector now instead of at first draw
+	World *instance(void);
 	BBox *getBBox(void) { return &this->bbox; }
 	void renderSectors(Camera *cam);	// frustum culled, uses atomic rendering	// TODO: should probably make this non-optional
 	void destroy(void);

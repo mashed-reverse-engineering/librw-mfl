@@ -44,6 +44,9 @@ struct HAnimHierarchy
 	void destroy(void);
 	void attachByIndex(int32 id);
 	void attach(void);
+	void detach(void);
+	void detachByIndex(int32 idx);
+	void setFrameHierarchy(Frame *f);
 	int32 getIndex(int32 id);
 	int32 getIndex(Frame *f);
 	void updateMatrices(void);

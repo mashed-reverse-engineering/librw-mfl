@@ -26,10 +26,12 @@ add_library(librw
     ptank.cpp
     raster.cpp
     render.cpp
+    rpextra.cpp
     rt2d.cpp
     rwanim.h
     rwengine.h
     rwerror.h
+    rwextra.h
     rwobjects.h
     rwpipeline.h
     rwplg.h
@@ -226,6 +228,7 @@ if(LIBRW_INSTALL)
             rwbase.h
             rwcharset.h
             rwerror.h
+            rwextra.h
             rwplg.h
             rwrender.h
             rwptank.h

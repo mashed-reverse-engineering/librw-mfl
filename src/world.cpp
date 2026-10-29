@@ -20,6 +20,9 @@ namespace rw {
 int32 World::numAllocated = 0;
 
 PluginList World::s_plglist(sizeof(World));
+PluginList WorldSector::s_plglist(sizeof(WorldSector));
+
+static void defaultSectorRender(WorldSector *sector){ sector->renderDefault(); }
 
 World*
 World::create(BBox *bbox)
@@ -42,6 +45,7 @@ World::create(BBox *bbox)
 	world->colSectorSize = 0;
 	world->format = 0;
 	world->invOrigin.set(0.0f, 0.0f, 0.0f);
+	world->sectorRenderCB = defaultSectorRender;
 	if(bbox)
 		world->bbox = *bbox;
 	else{
@@ -77,6 +81,7 @@ destroyNode(BspNode *n)
 		rwFree(s->collision);
 		if(s->collTree)
 			s->collTree->destroy();
+		WorldSector::s_plglist.destruct(s);
 	}else{
 		PlaneSector *p = (PlaneSector*)n;
 		destroyNode(p->left);
@@ -347,6 +352,9 @@ readSectorExtension(Stream *stream, WorldSector *sec, int32 length)
 		}else if(h.type == 0x120 && h.length >= 4){
 			sec->matFX = stream->readI32();
 			stream->seek(h.length-4);
+		}else if(WorldSector::s_plglist.streamReadChunk(stream, h.type, h.length, sec)){
+			// registered plugin consumed its chunk; resync in case it read less
+			// (plugins must read exactly h.length bytes, as everywhere in librw)
 		}else
 			stream->seek(h.length);
 		length -= h.length;
@@ -368,9 +376,9 @@ readAtomicSector(Stream *stream, BspReadCtx *ctx, BspNode **slot, uint32 end)
 		RWERROR((ERR_GENERAL, "bad atomic sector"));
 		return false;
 	}
-	WorldSector *sec = rwNewT(WorldSector, 1, MEMDUR_EVENT | ID_WORLD);
-	memset(sec, 0, sizeof(*sec));
-	sec->isLeaf = 1;
+	WorldSector *sec = WorldSector::create();
+	if(sec == nil)
+		return false;
 	*slot = (BspNode*)sec;
 	world->sectors[ctx->sectorsRead++] = sec;
 	sec->world = world;
@@ -624,6 +632,43 @@ World::forAllWorldSectors(WorldSectorCallBack cb, void *data)
 	return this;
 }
 
+World*
+World::forAllMaterials(WorldMaterialCallBack cb, void *data)
+{
+	for(int32 i = 0; i < this->matList.numMaterials; i++)
+		if(cb(this->matList.materials[i], data) == nil)
+			break;
+	return this;
+}
+
+World*
+World::forAllClumps(WorldClumpCallBack cb, void *data)
+{
+	FORLIST(lnk, this->clumps)
+		if(cb(Clump::fromWorld(lnk), data) == nil)
+			break;
+	return this;
+}
+
+World*
+World::setSectorRenderCallBack(WorldSectorRenderCallBack cb)
+{
+	this->sectorRenderCB = cb ? cb : defaultSectorRender;
+	return this;
+}
+
+static Atomic *ensureAtomic(WorldSector *s);
+
+World*
+World::instance(void)
+{
+	// ponytail: only builds geometry + atomic; the device instance still happens on first draw
+	for(int32 i = 0; i < this->numSectors; i++)
+		if(this->sectors[i] && this->sectors[i]->numTriangles)
+			ensureAtomic(this->sectors[i]);
+	return this;
+}
+
 // ---- minimal render path ---------------------------------------------------
 // Each sector becomes an ordinary Geometry + Atomic (identity frame) the first
 // time it is drawn, so all of librw's material/pipeline code is reused.
@@ -663,22 +708,67 @@ WorldSector::getGeometry(void)
 	return g;
 }
 
+WorldSector*
+WorldSector::create(void)
+{
+	WorldSector *sec = (WorldSector*)rwMalloc(s_plglist.size, MEMDUR_EVENT | ID_WORLD);
+	if(sec == nil){
+		RWERROR((ERR_ALLOC, s_plglist.size));
+		return nil;
+	}
+	memset(sec, 0, sizeof(*sec));
+	sec->isLeaf = 1;
+	s_plglist.construct(sec);
+	return sec;
+}
+
+void
+WorldSector::destroy(void)
+{
+	s_plglist.destruct(this);
+	rwFree(this);
+}
+
+void
+WorldSector::enableMatFX(void)
+{
+	this->matFX = 1;
+	if(this->atomic)
+		MatFX::enableEffects(this->atomic);
+}
+
 void
 WorldSector::render(void)
 {
-	if(this->atomic == nil){
-		Geometry *g = this->getGeometry();
-		if(g == nil)
-			return;
-		Atomic *a = Atomic::create();
-		a->setFrame(Frame::create());
-		a->setGeometry(g, 0);
-		g->destroy();	// atomic now owns the only reference
-		if(this->matFX)
-			MatFX::enableEffects(a);
-		this->atomic = a;
-	}
-	this->atomic->render();
+	World *w = this->world;
+	if(w && w->sectorRenderCB)
+		w->sectorRenderCB(this);
+	else
+		this->renderDefault();
+}
+
+static Atomic*
+ensureAtomic(WorldSector *s)
+{
+	if(s->atomic)
+		return s->atomic;
+	Geometry *g = s->getGeometry();
+	if(g == nil)
+		return nil;
+	Atomic *a = Atomic::create();
+	a->setFrame(Frame::create());
+	a->setGeometry(g, 0);
+	g->destroy();	// atomic now owns the only reference
+	if(s->matFX)
+		MatFX::enableEffects(a);
+	return s->atomic = a;
+}
+
+void
+WorldSector::renderDefault(void)
+{
+	if(Atomic *a = ensureAtomic(this))
+		a->render();
 }
 
 static void

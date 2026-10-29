@@ -149,6 +149,19 @@ PluginList::streamSkip(Stream *stream)
 	}
 }
 
+bool
+PluginList::streamReadChunk(Stream *stream, uint32 id, int32 length, void *object)
+{
+	FORLIST(lnk, this->plugins){
+		Plugin *p = PLG(lnk);
+		if(p->id == id && p->read){
+			p->read(stream, length, object, p->offset, p->size);
+			return true;
+		}
+	}
+	return false;
+}
+
 void
 PluginList::assertRights(void *object, uint32 pluginID, uint32 data)
 {

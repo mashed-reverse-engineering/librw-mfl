@@ -33,6 +33,8 @@ struct PluginList
 	void streamWrite(Stream *stream, void *);
 	int streamGetSize(void *);
 	void streamSkip(Stream *stream);
+	// reads one extension chunk with a registered stream handler; false if none
+	bool streamReadChunk(Stream *stream, uint32 id, int32 length, void *object);
 	void assertRights(void *, uint32 pluginID, uint32 data);
 
 	int32 registerPlugin(int32 size, uint32 id,
