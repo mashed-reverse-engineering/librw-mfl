@@ -37,6 +37,7 @@ struct HAnimHierarchy
 	HAnimNodeInfo *nodeInfo;
 	Frame *parentFrame;
 	HAnimHierarchy *parentHierarchy;	// mostly unused
+	int32 rootParentOffset;		// MFL: RW 3.7 slot, unused; puts interpolator (RW currentAnim) at 0x20
 	AnimInterpolator *interpolator;
 
 	static HAnimHierarchy *create(int32 numNodes, int32 *nodeFlags,

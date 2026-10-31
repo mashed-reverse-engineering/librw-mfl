@@ -431,7 +431,13 @@ Atomic::create(void)
 	atomic->pipeline = nil;
 	atomic->renderCB = Atomic::defaultRenderCB;
 	atomic->object.object.flags = Atomic::COLLISIONTEST | Atomic::RENDER;
-	// TODO: interpolator
+	// TODO: interpolator (RW 3.7 slots, see rwobjects.h)
+	atomic->repEntry = nil;
+	atomic->interpolatorFlags = 3;	// MFL: RpAtomicCreate writes 3 (disasm 0x4f68f0, [esi+0x4c]); RpAtomicSetGeometry with a geometry leaves 1 (asset parity, 637/637 atomics of course 0)
+	atomic->startMorphTarget = atomic->endMorphTarget = 0;
+	atomic->interpTime = atomic->interpRecipTime = atomic->interpPosition = 0.0f;
+	atomic->renderFrame = atomic->pad0 = 0;
+	atomic->llWorldSectors.init();
 
 	// World extension
 	atomic->world = nil;
@@ -482,6 +488,8 @@ Atomic::setGeometry(Geometry *geo, uint32 flags)
 	if(geo)
 		geo->addRef();
 	this->geometry = geo;
+	if(geo)
+		this->interpolatorFlags = 1;	// MFL: RpMorph plugin state after RpAtomicSetGeometry (original: 1 for every atomic of the game data)
 	if(flags & SAMEBOUNDINGSPHERE)
 		return;
 	if(geo){

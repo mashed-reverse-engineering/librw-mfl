@@ -47,9 +47,9 @@ struct Frame
 
 	Object object;
 	LLLink inDirtyList;
-	LinkList objectList;
 	Matrix matrix;
 	Matrix ltm;
+	LinkList objectList;
 
 	Frame *child;
 	Frame *next;
@@ -223,6 +223,12 @@ struct Raster
 	enum { FLIPWAITVSYNCH = 1 };
 
 	PLUGINBASE
+	// MFL: RW 3.7 order for the first fields (parent, pixels, palette, width, height, depth, stride)
+	Raster *parent;
+	uint8 *pixels;
+	uint8 *palette;
+	int32 width, height, depth;
+	int32 stride;
 	int32 platform;
 
 	// TODO: use bytes
@@ -230,17 +236,12 @@ struct Raster
 	int32 flags;
 	int32 privateFlags;
 	int32 format;
-	int32 width, height, depth;
-	int32 stride;
-	uint8 *pixels;
-	uint8 *palette;
 	// remember for locked rasters
 	uint8 *originalPixels;
 	int32 originalWidth;
 	int32 originalHeight;
 	int32 originalStride;
 	// subraster
-	Raster *parent;
 	int32 offsetX, offsetY;
 
 	static int32 numAllocated;
@@ -430,8 +431,8 @@ struct Material
 	PLUGINBASE
 	Texture *texture;
 	RGBA color;
-	SurfaceProperties surfaceProps;
 	Pipeline *pipeline;
+	SurfaceProperties surfaceProps;
 	int32 refCount;
 
 	static int32 numAllocated;
@@ -517,22 +518,20 @@ struct Geometry
 	Object object;
 	uint32 flags;
 	uint16 lockedSinceInst;
+	int16 refCount;		// MFL: was int32 after instData
 	int32 numTriangles;
 	int32 numVertices;
 	int32 numMorphTargets;
 	int32 numTexCoordSets;
 
+	MaterialList matList;
 	Triangle *triangles;
 	RGBA *colors;
 	TexCoords *texCoords[8];
 
-	MorphTarget *morphTargets;
-	MaterialList matList;
-
 	MeshHeader *meshHeader;
-	InstanceDataHeader *instData;
-
-	int32 refCount;
+	InstanceDataHeader *instData;	// RW: RwResEntry *repEntry
+	MorphTarget *morphTargets;
 
 	static int32 numAllocated;
 
@@ -621,13 +620,21 @@ struct Atomic
 	};
 
 	ObjectWithFrame object;
+	void *repEntry;		// MFL: RW 3.7 slot (RwResEntry*), unused
 	Geometry *geometry;
 	Sphere boundingSphere;
 	Sphere worldBoundingSphere;
 	Clump *clump;
 	LLLink inClump;
-	ObjPipeline *pipeline;
 	RenderCB renderCB;
+	// MFL: RW 3.7 RpInterpolator + render frame + sector list slots (the game reads interpolator.flags
+	// at 0x4c); librw has no RpMorph so they are placeholders. The game does not write them.
+	int32 interpolatorFlags;
+	int16 startMorphTarget, endMorphTarget;
+	float32 interpTime, interpRecipTime, interpPosition;
+	uint16 renderFrame, pad0;
+	LinkList llWorldSectors;
+	ObjPipeline *pipeline;
 
 	World *world;
 	ObjectWithFrame::Sync originalSync;
@@ -739,23 +746,22 @@ struct Camera
 	enum { SPHEREOUTSIDE, SPHEREBOUNDARY, SPHEREINSIDE };
 
 	ObjectWithFrame object;
+	int32 projection;
 	void (*beginUpdateCB)(Camera*);
 	void (*endUpdateCB)(Camera*);
+	Matrix viewMatrix;
+	Raster *frameBuffer;
+	Raster *zBuffer;
 	V2d viewWindow;
 	V2d viewOffset;
+	V2d recipViewWindow;	// MFL: RW 3.7 slot, kept in sync by setViewWindow
 	float32 nearPlane, farPlane;
 	float32 fogPlane;
-	int32 projection;
-
-	Matrix viewMatrix;
 	float32 zScale, zShift;
 
 	FrustumPlane frustumPlanes[6];
 	V3d frustumCorners[8];
 	BBox frustumBoundBox;
-
-	Raster *frameBuffer;
-	Raster *zBuffer;
 
 	// Device dependent view and projection matrices
 	// optional

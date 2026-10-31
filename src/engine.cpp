@@ -182,6 +182,9 @@ MemoryFunctions managedMemfuncs = {
 	nil
 };
 
+// mflrw: set by the C API (RwStreamOpen etc. before the game's own RwEngine* ran) to open the engine without a render device
+bool32 engineHeadless = 0;
+
 // This function mainly registers engine plugins
 bool32
 Engine::init(MemoryFunctions *memfuncs)
@@ -274,7 +277,10 @@ Engine::open(EngineOpenParams *p)
 	engine->device = null::renderdevice;
 #endif
 
-	engine->device.system(DEVICEOPEN, (void*)p, 0);
+	if(engineHeadless)
+		engine->device = null::renderdevice;
+	else
+		engine->device.system(DEVICEOPEN, (void*)p, 0);
 
 	engine->dummyDefaultPipeline = ObjPipeline::create();
 	for(uint i = 0; i < NUM_PLATFORMS; i++){

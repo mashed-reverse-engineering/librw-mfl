@@ -323,6 +323,7 @@ Camera::clone(void)
 	cam->object.object.copy(&this->object.object);
 	cam->setFrame(this->getFrame());
 	cam->viewWindow = this->viewWindow;
+	cam->recipViewWindow = this->recipViewWindow;
 	cam->viewOffset = this->viewOffset;
 	cam->nearPlane = this->nearPlane;
 	cam->farPlane = this->farPlane;
@@ -403,6 +404,8 @@ void
 Camera::setViewWindow(const V2d *window)
 {
 	this->viewWindow = *window;
+	this->recipViewWindow.x = window->x != 0.0f ? 1.0f/window->x : 0.0f;
+	this->recipViewWindow.y = window->y != 0.0f ? 1.0f/window->y : 0.0f;
 	if(this->getFrame())
 		this->getFrame()->updateObjects();
 }
