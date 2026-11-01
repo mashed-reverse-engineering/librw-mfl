@@ -302,6 +302,10 @@ void getTextureStageState(uint32 stage, uint32 type, uint32 *value);
 void setSamplerState(uint32 stage, uint32 type, uint32 value);
 void getSamplerState(uint32 stage, uint32 type, uint32 *value);
 void flushCache(void);
+extern bool32 fixedFunction;
+bool32 setTransform(uint32 state, const void *matrix);
+void getTransform(uint32 state, void *matrix);
+void setMaterial_fix(const RGBA &color, const SurfaceProperties &surfProps);
 
 void setTexture(uint32 stage, Texture *tex);
 void setMaterial(const RGBA &color, const SurfaceProperties &surfaceprops, float extraSurfProp = 0.0f);

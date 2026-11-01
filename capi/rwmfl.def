@@ -270,6 +270,10 @@ EXPORTS
     RwFree
     RwFseek
     RwFwrite
+    RwIm2DRenderIndexedPrimitive
+    RwIm2DRenderLine
+    RwIm2DRenderPrimitive
+    RwIm2DRenderTriangle
     RwIm3DEnd
     RwIm3DRenderIndexedPrimitive
     RwIm3DRenderLine
@@ -301,6 +305,8 @@ EXPORTS
     RwRasterGetOffset
     RwRasterSubRaster
     RwRealloc
+    RwRenderStateGet
+    RwRenderStateSet
     RwStreamClose
     RwStreamFindChunk
     RwStreamOpen

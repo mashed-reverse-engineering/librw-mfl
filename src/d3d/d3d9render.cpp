@@ -73,7 +73,9 @@ drawInst(d3d9::InstanceDataHeader *header, d3d9::InstanceData *inst)
 		drawInst_simple(header, inst);
 }
 
-/*
+// Fixed function default atomic callback (MFL, RW 3.7 style).  lighting: D3D lights + D3DMATERIAL9 = material colour x surface properties;
+// unlit: the material colour is multiplied in by a second texture stage with D3DRS_TEXTUREFACTOR.  NULL texture = no texture bound (d3d::fixedFunction).
+// ponytail: black/unlit path and the "fully inside" frustum test of the exe's callback are not reproduced (not disassembled); B7 replay decides.
 void
 defaultRenderCB_Fix(Atomic *atomic, InstanceDataHeader *header)
 {
@@ -85,20 +87,26 @@ defaultRenderCB_Fix(Atomic *atomic, InstanceDataHeader *header)
 		d3d::lightingCB_Fix(atomic);
 
 	d3d::setRenderState(D3DRS_LIGHTING, lighting);
+	d3d::setRenderState(D3DRS_COLORVERTEX, !!(geo->flags & Geometry::PRELIT));
+	d3d::setRenderState(D3DRS_NORMALIZENORMALS, lighting);
 
 	Frame *f = atomic->getFrame();
 	convMatrix(&world, f->getLTM());
-	d3ddevice->SetTransform(D3DTS_WORLD, (D3DMATRIX*)&world);
+	d3d::setTransform(D3DTS_WORLD, &world);
 
+	setVertexShader(nil);
+	setPixelShader(nil);
 	setStreamSource(0, header->vertexStream[0].vertexBuffer, 0, header->vertexStream[0].stride);
 	setIndices(header->indexBuffer);
 	setVertexDeclaration(header->vertexDeclaration);
 
 	InstanceData *inst = header->inst;
 	for(uint32 i = 0; i < header->numMeshes; i++){
-		SetRenderState(VERTEXALPHA, inst->vertexAlpha || inst->material->color.alpha != 255);
+		Material *m = inst->material;
 		const static rw::RGBA white = { 255, 255, 255, 255 };
-		d3d::setMaterial(white, inst->material->surfaceProps);
+		const rw::RGBA &col = (geo->flags & Geometry::MODULATE) ? m->color : white;
+		SetRenderState(VERTEXALPHA, inst->vertexAlpha || m->color.alpha != 255);
+		d3d::setMaterial_fix(col, m->surfaceProps);
 
 		d3d::setRenderState(D3DRS_AMBIENTMATERIALSOURCE, D3DMCS_MATERIAL);
 		if(geo->flags & Geometry::PRELIT)
@@ -107,31 +115,34 @@ defaultRenderCB_Fix(Atomic *atomic, InstanceDataHeader *header)
 			d3d::setRenderState(D3DRS_EMISSIVEMATERIALSOURCE, D3DMCS_MATERIAL);
 		d3d::setRenderState(D3DRS_DIFFUSEMATERIALSOURCE, inst->vertexAlpha ? D3DMCS_COLOR1 : D3DMCS_MATERIAL);
 
-		if(inst->material->texture){
-			// Texture
-			d3d::setTexture(0, inst->material->texture);
+		if(m->texture){
+			d3d::setTexture(0, m->texture);
 			d3d::setTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
-			d3d::setTextureStageState(0, D3DTSS_COLORARG1, D3DTA_CURRENT);
-			d3d::setTextureStageState(0, D3DTSS_COLORARG2, D3DTA_TEXTURE);
+			d3d::setTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+			d3d::setTextureStageState(0, D3DTSS_COLORARG2, D3DTA_CURRENT);
 			d3d::setTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
-			d3d::setTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
-			d3d::setTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TEXTURE);
+			d3d::setTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+			d3d::setTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
 		}else{
+			d3d::setTexture(0, nil);
 			d3d::setTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
 			d3d::setTextureStageState(0, D3DTSS_COLORARG1, D3DTA_CURRENT);
 			d3d::setTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
 			d3d::setTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
 		}
 
-		// Material colour
-		const rw::RGBA *col = &inst->material->color;
-		d3d::setTextureStageState(1, D3DTSS_CONSTANT, D3DCOLOR_ARGB(col->alpha,col->red,col->green,col->blue));
-		d3d::setTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE);
-		d3d::setTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
-		d3d::setTextureStageState(1, D3DTSS_COLORARG2, D3DTA_CONSTANT);
-		d3d::setTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
-		d3d::setTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
-		d3d::setTextureStageState(1, D3DTSS_ALPHAARG2, D3DTA_CONSTANT);
+		if(!lighting && (col.red != 255 || col.green != 255 || col.blue != 255 || col.alpha != 255)){
+			d3d::setRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(col.alpha, col.red, col.green, col.blue));
+			d3d::setTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE);
+			d3d::setTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
+			d3d::setTextureStageState(1, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+			d3d::setTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+			d3d::setTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+			d3d::setTextureStageState(1, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+		}else{
+			d3d::setTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+			d3d::setTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+		}
 
 		drawInst(header, inst);
 		inst++;
@@ -139,11 +150,11 @@ defaultRenderCB_Fix(Atomic *atomic, InstanceDataHeader *header)
 	d3d::setTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
 	d3d::setTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
 }
-*/
 
 void
 defaultRenderCB_Shader(Atomic *atomic, InstanceDataHeader *header)
 {
+	if(d3d::fixedFunction){ defaultRenderCB_Fix(atomic, header); return; }
 	int vsBits;
 	uint32 flags = atomic->geometry->flags;
 	setStreamSource(0, header->vertexStream[0].vertexBuffer, 0, header->vertexStream[0].stride);

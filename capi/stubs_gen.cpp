@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include "rwmfl.h"
 
-static unsigned hits[233]; static const char *const names[233] = {
+static unsigned hits[218]; static const char *const names[218] = {
 	"FUN_004da0e0",
 	"FUN_004dbca0",
 	"FUN_004dbda0",
@@ -175,20 +175,6 @@ static unsigned hits[233]; static const char *const names[233] = {
 	"RwCameraSetProjection",
 	"RwCameraSetViewWindow",
 	"RwCameraShowRaster",
-	"RwD3D9CreatePixelShader",
-	"RwD3D9CreateVertexShader",
-	"RwD3D9DeleteVertexShader",
-	"RwD3D9EngineSetRefreshRate",
-	"RwD3D9GetCurrentD3DDevice",
-	"RwD3D9GetRenderState",
-	"RwD3D9GetTransform",
-	"RwD3D9SetRenderState",
-	"RwD3D9SetSamplerState",
-	"RwD3D9SetStreamSource",
-	"RwD3D9SetSurfaceProperties",
-	"RwD3D9SetTexture",
-	"RwD3D9SetTextureStageState",
-	"RwD3D9SetTransform",
 	"RwFrameOrthoNormalize",
 	"RwIm3DEnd",
 	"RwIm3DRenderIndexedPrimitive",
@@ -222,7 +208,6 @@ static unsigned hits[233]; static const char *const names[233] = {
 	"rpPatchMeshDestroy",
 	"rwD3D9DrawIndexedPrimitive",
 	"rwD3D9EnableClippingIfNeeded",
-	"rwD3D9RenderStateFlushCache",
 	"rwD3D9SetPixelShader",
 	"rwD3D9SetStreams",
 	"rwD3D9SetVertexShader",
@@ -239,8 +224,8 @@ static unsigned hits[233]; static const char *const names[233] = {
 };
 static void hit(int i){ if (++hits[i] == 1) fprintf(stderr, "[mflrw] stub called: %s\n", names[i]); }
 extern "C" {
-int RWAPI rwmfl_stub_count(void){ return 233; }
-int RWAPI rwmfl_stub_info(int i, const char **n, unsigned *h){ if (i < 0 || i >= 233) return 0; if (n) *n = names[i]; if (h) *h = hits[i]; return 1; }
+int RWAPI rwmfl_stub_count(void){ return 218; }
+int RWAPI rwmfl_stub_info(int i, const char **n, unsigned *h){ if (i < 0 || i >= 218) return 0; if (n) *n = names[i]; if (h) *h = hits[i]; return 1; }
 int RWAPI FUN_004da0e0(void) { hit(0); return (int)0; }
 int RWAPI FUN_004dbca0(void) { hit(1); return (int)0; }
 int RWAPI FUN_004dbda0(int p0, int p1, int p2, int p3, int p4, int p5, int p6, int p7, int p8, int p9, int p10, int p11, int p12) { hit(2); return (int)0; }
@@ -413,65 +398,50 @@ RwCamera * RWAPI RwCameraSetNearClipPlane(RwCamera *camera, RwReal nearClip) { h
 RwCamera * RWAPI RwCameraSetProjection(RwCamera *camera, RwCameraProjection projection) { hit(169); return (RwCamera *)0; }
 RwCamera * RWAPI RwCameraSetViewWindow(RwCamera *camera, const RwV2d *viewWindow) { hit(170); return (RwCamera *)0; }
 RwCamera * RWAPI RwCameraShowRaster(RwCamera * camera, void *pDev, RwUInt32 flags) { hit(171); return (RwCamera *)0; }
-RwBool RWAPI RwD3D9CreatePixelShader(const RwUInt32 *function, void **shader) { hit(172); return (RwBool)0; }
-RwBool RWAPI RwD3D9CreateVertexShader(const RwUInt32 *function, void **shader) { hit(173); return (RwBool)0; }
-void RWAPI RwD3D9DeleteVertexShader(void *shader) { hit(174); }
-void RWAPI RwD3D9EngineSetRefreshRate(RwUInt32 refreshRate) { hit(175); }
-void * RWAPI RwD3D9GetCurrentD3DDevice(void) { hit(176); return (void *)0; }
-void RWAPI RwD3D9GetRenderState(RwUInt32 state, void *value) { hit(177); }
-void RWAPI RwD3D9GetTransform(RwUInt32 state, void *matrix) { hit(178); }
-void RWAPI RwD3D9SetRenderState(RwUInt32 state, RwUInt32 value) { hit(179); }
-void RWAPI RwD3D9SetSamplerState(RwUInt32 stage, RwUInt32 type, RwUInt32 value) { hit(180); }
-void RWAPI RwD3D9SetStreamSource(RwUInt32 streamNumber, void *streamData, RwUInt32 offset, RwUInt32 stride) { hit(181); }
-RwBool RWAPI RwD3D9SetSurfaceProperties(const RwSurfaceProperties *surfaceProps, const RwRGBA *color, RwUInt32 flags) { hit(182); return (RwBool)0; }
-RwBool RWAPI RwD3D9SetTexture(RwTexture *texture, RwUInt32 stage) { hit(183); return (RwBool)0; }
-void RWAPI RwD3D9SetTextureStageState(RwUInt32 stage, RwUInt32 type, RwUInt32 value) { hit(184); }
-RwBool RWAPI RwD3D9SetTransform(RwUInt32 state, const void *matrix) { hit(185); return (RwBool)0; }
-RwFrame * RWAPI RwFrameOrthoNormalize(RwFrame * frame) { hit(186); return (RwFrame *)0; }
-RwBool RWAPI RwIm3DEnd(void) { hit(187); return (RwBool)0; }
-RwBool RWAPI RwIm3DRenderIndexedPrimitive(RwPrimitiveType primType, RwImVertexIndex *indices, RwInt32 numIndices) { hit(188); return (RwBool)0; }
-RwBool RWAPI RwIm3DRenderLine(RwInt32 vert1, RwInt32 vert2) { hit(189); return (RwBool)0; }
-RwBool RWAPI RwIm3DRenderPrimitive(RwPrimitiveType primType) { hit(190); return (RwBool)0; }
-void * RWAPI RwIm3DTransform(RwIm3DVertex *pVerts, RwUInt32 numVerts, RwMatrix *ltm, RwUInt32 flags) { hit(191); return (void *)0; }
-RwImage * RWAPI RwImageAllocatePixels(RwImage * image) { hit(192); return (RwImage *)0; }
-RwImage * RWAPI RwImageCreate(RwInt32 width, RwInt32 height, RwInt32 depth) { hit(193); return (RwImage *)0; }
-RwBool RWAPI RwImageDestroy(RwImage * image) { hit(194); return (RwBool)0; }
-RwBool RWAPI RwImageRegisterImageFormat(const RwChar * extension, RwImageCallBackRead imageRead, RwImageCallBackWrite imageWrite) { hit(195); return (RwBool)0; }
-RwImage * RWAPI RwImageSetFromRaster(RwImage *image, RwRaster *raster) { hit(196); return (RwImage *)0; }
-const RwChar * RWAPI RwImageSetPath(const RwChar * path) { hit(197); return (const RwChar *)0; }
-RwImage * RWAPI RwImageWrite(RwImage * image, const RwChar * imageName) { hit(198); return (RwImage *)0; }
-RwMatrix * RWAPI RwMatrixCreate(void) { hit(199); return (RwMatrix *)0; }
-RwBool RWAPI RwMatrixDestroy(RwMatrix * mpMat) { hit(200); return (RwBool)0; }
-RwMatrix * RWAPI RwMatrixOrthoNormalize(RwMatrix * matrixOut, const RwMatrix * matrixIn) { hit(201); return (RwMatrix *)0; }
-const RwMatrix * RWAPI RwMatrixQueryRotate(const RwMatrix * matrix, RwV3d * unitAxis, RwReal * angle, RwV3d * center) { hit(202); return (const RwMatrix *)0; }
-RwMatrix * RWAPI RwMatrixStreamRead(RwStream * stream, RwMatrix * matrix) { hit(203); return (RwMatrix *)0; }
-RwMemoryFunctions * RWAPI RwOsGetMemoryInterface(void) { hit(204); return (RwMemoryFunctions *)0; }
-RwRaster * RWAPI RwRasterSubRaster(RwRaster * subRaster, RwRaster * raster, RwRect * rect) { hit(205); return (RwRaster *)0; }
-RxD3D9AllInOneRenderCallBack RWAPI RxD3D9AllInOneGetRenderCallBack(RxPipelineNode *node) { hit(206); return (RxD3D9AllInOneRenderCallBack)0; }
-RxLockedPipe * RWAPI RxLockedPipeAddFragment(RxLockedPipe *pipeline, RwUInt32 *firstIndex, RxNodeDefinition *nodeDef0, ...) { hit(207); return (RxLockedPipe *)0; }
-RxPipeline * RWAPI RxLockedPipeUnlock(RxLockedPipe *pipeline) { hit(208); return (RxPipeline *)0; }
-RxNodeDefinition * RWAPI RxNodeDefinitionGetD3D9AtomicAllInOne(void) { hit(209); return (RxNodeDefinition *)0; }
-RxNodeDefinition * RWAPI RxNodeDefinitionGetD3D9WorldSectorAllInOne(void) { hit(210); return (RxNodeDefinition *)0; }
-RxPipeline * RWAPI RxPipelineCreate(void) { hit(211); return (RxPipeline *)0; }
-RxPipelineNode * RWAPI RxPipelineFindNodeByName(RxPipeline *pipeline, const RwChar *name, RxPipelineNode *start, RwInt32 *nodeIndex) { hit(212); return (RxPipelineNode *)0; }
-RxLockedPipe * RWAPI RxPipelineLock(RxPipeline *pipeline) { hit(213); return (RxLockedPipe *)0; }
-int RWAPI lib_5501c0(void) { hit(214); return (int)0; }
-int RWAPI rpAtomicResyncInterpolatedSphere(void) { hit(215); return (int)0; }
-int RWAPI rpPatchMeshDestroy(void) { hit(216); return (int)0; }
-int RWAPI rwD3D9DrawIndexedPrimitive(void) { hit(217); return (int)0; }
-int RWAPI rwD3D9EnableClippingIfNeeded(void) { hit(218); return (int)0; }
-int RWAPI rwD3D9RenderStateFlushCache(void) { hit(219); return (int)0; }
-int RWAPI rwD3D9SetPixelShader(void) { hit(220); return (int)0; }
-int RWAPI rwD3D9SetStreams(void) { hit(221); return (int)0; }
-int RWAPI rwD3D9SetVertexShader(void) { hit(222); return (int)0; }
-int RWAPI rwD3D9SetVertexShaderConstant(void) { hit(223); return (int)0; }
-int RWAPI rwObjectHasFrameSetFrame(void) { hit(224); return (int)0; }
-int RWAPI rwPluginRegistryAddPluginStream(void) { hit(225); return (int)0; }
-int RWAPI rwSListGetBegin(void) { hit(226); return (int)0; }
-int RWAPI rwSListGetNumEntries(void) { hit(227); return (int)0; }
-int RWAPI rxD3D9SkinVertexShaderSetLightingCallBack(void) { hit(228); return (int)0; }
-int RWAPI rxD3D9VertexShaderDefaultEndCallBack(void) { hit(229); return (int)0; }
-int RWAPI rxPipelineDestroy(void) { hit(230); return (int)0; }
-int RWAPI thunk_FUN_004fc3cd(void) { hit(231); return (int)0; }
-int RWAPI thunk_FUN_004fc616(void) { hit(232); return (int)0; }
+RwFrame * RWAPI RwFrameOrthoNormalize(RwFrame * frame) { hit(172); return (RwFrame *)0; }
+RwBool RWAPI RwIm3DEnd(void) { hit(173); return (RwBool)0; }
+RwBool RWAPI RwIm3DRenderIndexedPrimitive(RwPrimitiveType primType, RwImVertexIndex *indices, RwInt32 numIndices) { hit(174); return (RwBool)0; }
+RwBool RWAPI RwIm3DRenderLine(RwInt32 vert1, RwInt32 vert2) { hit(175); return (RwBool)0; }
+RwBool RWAPI RwIm3DRenderPrimitive(RwPrimitiveType primType) { hit(176); return (RwBool)0; }
+void * RWAPI RwIm3DTransform(RwIm3DVertex *pVerts, RwUInt32 numVerts, RwMatrix *ltm, RwUInt32 flags) { hit(177); return (void *)0; }
+RwImage * RWAPI RwImageAllocatePixels(RwImage * image) { hit(178); return (RwImage *)0; }
+RwImage * RWAPI RwImageCreate(RwInt32 width, RwInt32 height, RwInt32 depth) { hit(179); return (RwImage *)0; }
+RwBool RWAPI RwImageDestroy(RwImage * image) { hit(180); return (RwBool)0; }
+RwBool RWAPI RwImageRegisterImageFormat(const RwChar * extension, RwImageCallBackRead imageRead, RwImageCallBackWrite imageWrite) { hit(181); return (RwBool)0; }
+RwImage * RWAPI RwImageSetFromRaster(RwImage *image, RwRaster *raster) { hit(182); return (RwImage *)0; }
+const RwChar * RWAPI RwImageSetPath(const RwChar * path) { hit(183); return (const RwChar *)0; }
+RwImage * RWAPI RwImageWrite(RwImage * image, const RwChar * imageName) { hit(184); return (RwImage *)0; }
+RwMatrix * RWAPI RwMatrixCreate(void) { hit(185); return (RwMatrix *)0; }
+RwBool RWAPI RwMatrixDestroy(RwMatrix * mpMat) { hit(186); return (RwBool)0; }
+RwMatrix * RWAPI RwMatrixOrthoNormalize(RwMatrix * matrixOut, const RwMatrix * matrixIn) { hit(187); return (RwMatrix *)0; }
+const RwMatrix * RWAPI RwMatrixQueryRotate(const RwMatrix * matrix, RwV3d * unitAxis, RwReal * angle, RwV3d * center) { hit(188); return (const RwMatrix *)0; }
+RwMatrix * RWAPI RwMatrixStreamRead(RwStream * stream, RwMatrix * matrix) { hit(189); return (RwMatrix *)0; }
+RwMemoryFunctions * RWAPI RwOsGetMemoryInterface(void) { hit(190); return (RwMemoryFunctions *)0; }
+RwRaster * RWAPI RwRasterSubRaster(RwRaster * subRaster, RwRaster * raster, RwRect * rect) { hit(191); return (RwRaster *)0; }
+RxD3D9AllInOneRenderCallBack RWAPI RxD3D9AllInOneGetRenderCallBack(RxPipelineNode *node) { hit(192); return (RxD3D9AllInOneRenderCallBack)0; }
+RxLockedPipe * RWAPI RxLockedPipeAddFragment(RxLockedPipe *pipeline, RwUInt32 *firstIndex, RxNodeDefinition *nodeDef0, ...) { hit(193); return (RxLockedPipe *)0; }
+RxPipeline * RWAPI RxLockedPipeUnlock(RxLockedPipe *pipeline) { hit(194); return (RxPipeline *)0; }
+RxNodeDefinition * RWAPI RxNodeDefinitionGetD3D9AtomicAllInOne(void) { hit(195); return (RxNodeDefinition *)0; }
+RxNodeDefinition * RWAPI RxNodeDefinitionGetD3D9WorldSectorAllInOne(void) { hit(196); return (RxNodeDefinition *)0; }
+RxPipeline * RWAPI RxPipelineCreate(void) { hit(197); return (RxPipeline *)0; }
+RxPipelineNode * RWAPI RxPipelineFindNodeByName(RxPipeline *pipeline, const RwChar *name, RxPipelineNode *start, RwInt32 *nodeIndex) { hit(198); return (RxPipelineNode *)0; }
+RxLockedPipe * RWAPI RxPipelineLock(RxPipeline *pipeline) { hit(199); return (RxLockedPipe *)0; }
+int RWAPI lib_5501c0(void) { hit(200); return (int)0; }
+int RWAPI rpAtomicResyncInterpolatedSphere(void) { hit(201); return (int)0; }
+int RWAPI rpPatchMeshDestroy(void) { hit(202); return (int)0; }
+int RWAPI rwD3D9DrawIndexedPrimitive(void) { hit(203); return (int)0; }
+int RWAPI rwD3D9EnableClippingIfNeeded(void) { hit(204); return (int)0; }
+int RWAPI rwD3D9SetPixelShader(void) { hit(205); return (int)0; }
+int RWAPI rwD3D9SetStreams(void) { hit(206); return (int)0; }
+int RWAPI rwD3D9SetVertexShader(void) { hit(207); return (int)0; }
+int RWAPI rwD3D9SetVertexShaderConstant(void) { hit(208); return (int)0; }
+int RWAPI rwObjectHasFrameSetFrame(void) { hit(209); return (int)0; }
+int RWAPI rwPluginRegistryAddPluginStream(void) { hit(210); return (int)0; }
+int RWAPI rwSListGetBegin(void) { hit(211); return (int)0; }
+int RWAPI rwSListGetNumEntries(void) { hit(212); return (int)0; }
+int RWAPI rxD3D9SkinVertexShaderSetLightingCallBack(void) { hit(213); return (int)0; }
+int RWAPI rxD3D9VertexShaderDefaultEndCallBack(void) { hit(214); return (int)0; }
+int RWAPI rxPipelineDestroy(void) { hit(215); return (int)0; }
+int RWAPI thunk_FUN_004fc3cd(void) { hit(216); return (int)0; }
+int RWAPI thunk_FUN_004fc616(void) { hit(217); return (int)0; }
 }

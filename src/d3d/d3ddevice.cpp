@@ -100,6 +100,14 @@ static RwStateCache rwStateCache;
 void *constantVertexStream;
 static IDirect3DTexture9 *whiteTex;
 
+// MFL: the original (RW 3.7) draws through the D3D9 fixed function pipeline.  fixedFunction = 1: a NULL texture raster is a NULL D3D texture (not whiteTex),
+// the camera sets D3DTS_VIEW / PROJECTION and the D3D fog states, FOGENABLE also sets D3DRS_FOGENABLE.  Default 0 keeps librw's shader behaviour.
+bool32 fixedFunction;
+
+// cached D3D transforms (RwD3D9SetTransform): VIEW 2, PROJECTION 3, TEXTURE0-7 16..23, WORLD 256
+#define XFORMSLOT(s) ((s) == 256 ? 24 : ((s) >= 2 && (s) <= 3) ? (s) - 2 : ((s) >= 16 && (s) <= 23) ? (s) - 14 : -1)
+static struct { float m[16]; bool32 valid; } xformCache[25];
+
 D3dShaderState d3dShaderState;
 
 #define MAXNUMSTATES (D3DRS_BLENDOPALPHA+1)
@@ -233,6 +241,27 @@ setRenderState(uint32 state, uint32 value)
 	}
 }
 
+bool32
+setTransform(uint32 state, const void *matrix)
+{
+	int i = XFORMSLOT(state);
+	if(i < 0){ d3ddevice->SetTransform((D3DTRANSFORMSTATETYPE)state, (const D3DMATRIX*)matrix); return 1; }
+	if(!xformCache[i].valid || memcmp(xformCache[i].m, matrix, 64)){
+		d3ddevice->SetTransform((D3DTRANSFORMSTATETYPE)state, (const D3DMATRIX*)matrix);
+		memcpy(xformCache[i].m, matrix, 64);
+		xformCache[i].valid = 1;
+	}
+	return 1;
+}
+
+void
+getTransform(uint32 state, void *matrix)
+{
+	int i = XFORMSLOT(state);
+	if(i >= 0 && xformCache[i].valid) memcpy(matrix, xformCache[i].m, 64);
+	else d3ddevice->GetTransform((D3DTRANSFORMSTATETYPE)state, (D3DMATRIX*)matrix);
+}
+
 void
 getRenderState(uint32 state, uint32 *value)
 {
@@ -304,6 +333,7 @@ flushCache(void)
 	}
 	numDirtyTextureStageStates = 0;
 
+	if(d3dShaderState.fogDirty && fixedFunction) d3dShaderState.fogDirty = false;
 	if(d3dShaderState.fogDirty){
 		d3ddevice->SetVertexShaderConstantF(VSLOC_fogData, (float*)&d3dShaderState.fogData, 1);
 		d3ddevice->SetPixelShaderConstantF(PSLOC_fogColor, (float*)&d3dShaderState.fogColor, 1);
@@ -360,6 +390,11 @@ restoreD3d9Device(void)
 		for(s = 0; s < MAXNUMSTAGES; s++)
 			d3ddevice->SetSamplerState(s, (D3DSAMPLERSTATETYPE)t, d3dSamplerStates[t][s]);
 	d3ddevice->SetMaterial(&d3dmaterial);
+	for(i = 0; i < 25; i++)
+		if(xformCache[i].valid){
+			int st = i == 24 ? 256 : i < 2 ? i + 2 : i + 14;
+			d3ddevice->SetTransform((D3DTRANSFORMSTATETYPE)st, (const D3DMATRIX*)xformCache[i].m);
+		}
 
 	d3ddevice->SetVertexShader(deviceCache.vertexShader);
 	d3ddevice->SetPixelShader(deviceCache.pixelShader);
@@ -425,7 +460,7 @@ setDepthTest(bool32 enable)
 			setRenderState(D3DRS_ZFUNC, D3DCMP_ALWAYS);
 		}else{
 			setRenderState(D3DRS_ZENABLE, rwStateCache.ztest);
-			setRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+			setRenderState(D3DRS_ZFUNC, rwStateCache.ztest ? D3DCMP_LESSEQUAL : D3DCMP_ALWAYS);	// original trace: test off keeps ALWAYS
 		}
 	}
 }
@@ -441,6 +476,11 @@ setDepthWrite(bool32 enable)
 			setRenderState(D3DRS_ZFUNC, D3DCMP_ALWAYS);
 		}
 		setRenderState(D3DRS_ZWRITEENABLE, rwStateCache.zwrite);
+		if(!enable && !rwStateCache.ztest){
+			// RW: nothing tests or writes any more
+			setRenderState(D3DRS_ZENABLE, FALSE);
+			setRenderState(D3DRS_ZFUNC, D3DCMP_ALWAYS);
+		}
 	}
 }
 
@@ -470,7 +510,7 @@ setRasterStage(uint32 stage, Raster *raster)
 			d3ddevice->SetTexture(stage, (IDirect3DTexture9*)d3draster->texture);
 			alpha = d3draster->hasAlpha;
 		}else{
-			d3ddevice->SetTexture(stage, whiteTex);
+			d3ddevice->SetTexture(stage, fixedFunction ? nil : whiteTex);
 			alpha = 0;
 		}
 		if(stage == 0){
@@ -570,16 +610,15 @@ setMaterial_fix(const RGBA &color, const SurfaceProperties &surfProps)
 {
 	D3DMATERIAL9 mat9;
 	D3DCOLORVALUE black = { 0, 0, 0, 0 };
-	float ambmult = surfProps.ambient/255.0f;
-	float diffmult = surfProps.diffuse/255.0f;
-	mat9.Ambient.r = color.red*ambmult;
-	mat9.Ambient.g = color.green*ambmult;
-	mat9.Ambient.b = color.blue*ambmult;
-	mat9.Ambient.a = color.alpha;
-	mat9.Diffuse.r = color.red*diffmult;
-	mat9.Diffuse.g = color.green*diffmult;
-	mat9.Diffuse.b = color.blue*diffmult;
-	mat9.Diffuse.a = color.alpha;
+	float r = color.red/255.0f, g = color.green/255.0f, b = color.blue/255.0f, a = color.alpha/255.0f;
+	mat9.Ambient.r = r*surfProps.ambient;
+	mat9.Ambient.g = g*surfProps.ambient;
+	mat9.Ambient.b = b*surfProps.ambient;
+	mat9.Ambient.a = a;
+	mat9.Diffuse.r = r*surfProps.diffuse;
+	mat9.Diffuse.g = g*surfProps.diffuse;
+	mat9.Diffuse.b = b*surfProps.diffuse;
+	mat9.Diffuse.a = a;
 	mat9.Power = 0.0f;
 	mat9.Emissive = black;
 	mat9.Specular = black;
@@ -658,7 +697,7 @@ setRwRenderState(int32 state, void *pvalue)
 	case FOGENABLE:
 		if(rwStateCache.fogenable != bval){
 			rwStateCache.fogenable = bval;
-//			setRenderState(D3DRS_FOGENABLE, rwStateCache.fogenable);
+			if(fixedFunction) setRenderState(D3DRS_FOGENABLE, rwStateCache.fogenable);
 			d3dShaderState.fogData.disable = bval ? 0.0f : 1.0f;
 			d3dShaderState.fogDirty = true;
 		};
@@ -1245,7 +1284,7 @@ beginUpdate(Camera *cam)
 	view[14] =  inv.pos.z;
 	view[15] =  1.0f;
 	memcpy(&cam->devView, view, sizeof(RawMatrix));
-//	d3ddevice->SetTransform(D3DTS_VIEW, (D3DMATRIX*)view);
+	if(fixedFunction) setTransform(D3DTS_VIEW, view);
 
 	// Projection Matrix
 	float32 invwx = 1.0f/cam->viewWindow.x;
@@ -1279,11 +1318,13 @@ beginUpdate(Camera *cam)
 	}
 	proj[14] = -cam->nearPlane*proj[10];
 	memcpy(&cam->devProj, proj, sizeof(RawMatrix));
-//	d3ddevice->SetTransform(D3DTS_PROJECTION, (D3DMATRIX*)proj);
+	if(fixedFunction) setTransform(D3DTS_PROJECTION, proj);
 
 	// TODO: figure out where this is really done
-//	setRenderState(D3DRS_FOGSTART, *(uint32*)&cam->fogPlane);
-//	setRenderState(D3DRS_FOGEND, *(uint32*)&cam->farPlane);
+	if(fixedFunction){
+		setRenderState(D3DRS_FOGSTART, *(uint32*)&cam->fogPlane);
+		setRenderState(D3DRS_FOGEND, *(uint32*)&cam->farPlane);
+	}
 	d3dShaderState.fogData.start = cam->fogPlane;
 	d3dShaderState.fogData.end = cam->farPlane;
 	d3dShaderState.fogData.range = 1.0f/(cam->fogPlane - cam->farPlane);
@@ -1329,7 +1370,7 @@ clearCamera(Camera *cam, RGBA *col, uint32 mode)
 	if(mode & Camera::CLEARIMAGE)
 		mode |= D3DCLEAR_TARGET;
 	if(mode & Camera::CLEARZ)
-		mode |= D3DCLEAR_ZBUFFER;
+		mode |= D3DCLEAR_ZBUFFER | (fixedFunction && d3d9Globals.present.AutoDepthStencilFormat == D3DFMT_D24S8 ? D3DCLEAR_STENCIL : 0);	// original: flags 7
 	if(mode & Camera::CLEARSTENCIL)
 		mode |= D3DCLEAR_STENCIL;
 	D3DCOLOR c = D3DCOLOR_RGBA(col->red, col->green, col->blue, col->alpha);
@@ -1668,7 +1709,7 @@ initD3D(void)
 	assert(lockedvertices);
 	memcpy(lockedvertices, &constants, sizeof(constants));
 	unlockVertices(constantVertexStream);
-	setStreamSource(2, constantVertexStream, 0, 0);
+	if(!fixedFunction) setStreamSource(2, constantVertexStream, 0, 0);
 
 	d3ddevice->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
 	rwStateCache.alphafunc = ALPHAGREATEREQUAL;
@@ -1682,10 +1723,16 @@ initD3D(void)
 	rwStateCache.fogenable = 0;
 	d3ddevice->SetRenderState(D3DRS_FOGTABLEMODE, D3DFOG_LINEAR);
 
-	d3ddevice->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-	rwStateCache.cullmode = CULLNONE;
+	rwStateCache.ztest = 1; rwStateCache.zwrite = 1;	// = the D3D device defaults (ZENABLE, ZWRITEENABLE on, LESSEQUAL): the first ZTEST / ZWRITE off must reach D3D
+	if(fixedFunction){	// RW 3.7 default block: back face culling (original trace: RwRenderStateSet(CULLMODE, NONE) at the first frame sets D3D)
+		d3ddevice->SetRenderState(D3DRS_CULLMODE, cullmodeMap[CULLBACK]);
+		rwStateCache.cullmode = CULLBACK;
+	}else{
+		d3ddevice->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+		rwStateCache.cullmode = CULLNONE;
+	}
 
-	d3ddevice->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
+	if(!fixedFunction) d3ddevice->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);	// D3D default; the original never sets it
 	d3ddevice->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
 	rwStateCache.srcblend = BLENDSRCALPHA;
 	d3ddevice->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);

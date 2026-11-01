@@ -33,7 +33,7 @@ static int primTypeMap[] = {
 	D3DPT_POINTLIST,	// actually not supported!
 };
 
-static IDirect3DVertexDeclaration9 *im2ddecl;
+static IDirect3DVertexDeclaration9 *im2ddecl, *im2dfixdecl;
 static IDirect3DVertexBuffer9 *im2dvertbuf;
 static IDirect3DIndexBuffer9 *im2dindbuf;
 
@@ -53,6 +53,10 @@ openIm2D(void)
 	assert(im2ddecl == nil);
 	im2ddecl = (IDirect3DVertexDeclaration9*)d3d9::createVertexDeclaration((d3d9::VertexElement*)elements);
 	assert(im2ddecl);
+	// fixed function: pre-transformed vertices (x, y, z, rhw) exactly as RW's D3DFVF_XYZRHW|DIFFUSE|TEX1
+	elements[0].Usage = D3DDECLUSAGE_POSITIONT;
+	im2dfixdecl = (IDirect3DVertexDeclaration9*)d3d9::createVertexDeclaration((d3d9::VertexElement*)elements);
+	assert(im2dfixdecl);
 
 	assert(im2dvertbuf == nil);
 	im2dvertbuf = (IDirect3DVertexBuffer9*)createVertexBuffer(NUMVERTICES*sizeof(Im2DVertex), 0, true);
@@ -70,6 +74,8 @@ closeIm2D(void)
 {
 	d3d9::destroyVertexDeclaration(im2ddecl);
 	im2ddecl = nil;
+	d3d9::destroyVertexDeclaration(im2dfixdecl);
+	im2dfixdecl = nil;
 
 	removeDynamicVB(&im2dvertbuf);
 	destroyVertexBuffer(im2dvertbuf);
@@ -81,6 +87,31 @@ closeIm2D(void)
 }
 
 static Im2DVertex tmpprimbuf[3];
+
+// fixed function Im2D state: no shaders, stage 0 = texture x diffuse (or diffuse), no lighting
+static void
+im2DSetupFix(void)
+{
+	setVertexDeclaration(im2dfixdecl);
+	setVertexShader(nil);
+	setPixelShader(nil);
+	setRenderState(D3DRS_LIGHTING, FALSE);
+	if(engine->device.getRenderState(TEXTURERASTER)){
+		setTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+		setTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+		setTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+		setTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+		setTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+		setTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+	}else{
+		setTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+		setTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+		setTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+		setTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+	}
+	setTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+	setTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+}
 
 void
 im2DRenderLine(void *vertices, int32 numVertices, int32 vert1, int32 vert2)
@@ -129,15 +160,19 @@ im2DRenderPrimitive(PrimitiveType primType, void *vertices, int32 numVertices)
 	setStreamSource(0, im2dvertbuf, 0, sizeof(Im2DVertex));
 	setVertexDeclaration(im2ddecl);
 
-	im2DSetXform();
+	if(fixedFunction)
+		im2DSetupFix();
+	else{
+		im2DSetXform();
 
-	setVertexShader(im2d_VS);
-	if(im2dOverridePS)
-		setPixelShader(im2dOverridePS);
-	else if(engine->device.getRenderState(TEXTURERASTER))
-		setPixelShader(im2d_tex_PS);
-	else
-		setPixelShader(im2d_PS);
+		setVertexShader(im2d_VS);
+		if(im2dOverridePS)
+			setPixelShader(im2dOverridePS);
+		else if(engine->device.getRenderState(TEXTURERASTER))
+			setPixelShader(im2d_tex_PS);
+		else
+			setPixelShader(im2d_PS);
+	}
 
 	d3d::flushCache();
 
@@ -186,15 +221,19 @@ im2DRenderIndexedPrimitive(PrimitiveType primType,
 	setIndices(im2dindbuf);
 	setVertexDeclaration(im2ddecl);
 
-	im2DSetXform();
+	if(fixedFunction)
+		im2DSetupFix();
+	else{
+		im2DSetXform();
 
-	setVertexShader(im2d_VS);
-	if(im2dOverridePS)
-		setPixelShader(im2dOverridePS);
-	else if(engine->device.getRenderState(TEXTURERASTER))
-		setPixelShader(im2d_tex_PS);
-	else
-		setPixelShader(im2d_PS);
+		setVertexShader(im2d_VS);
+		if(im2dOverridePS)
+			setPixelShader(im2dOverridePS);
+		else if(engine->device.getRenderState(TEXTURERASTER))
+			setPixelShader(im2d_tex_PS);
+		else
+			setPixelShader(im2d_PS);
+	}
 
 	d3d::flushCache();
 

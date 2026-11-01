@@ -16,12 +16,14 @@ static int g_tr; static int tr_on(void){ static int on = -1; if(on < 0){ const c
 
 // ---- RwEngineInstance shadow: the RW 3.7 RwGlobals layout, the parts the game reads by offset (fields_used.csv): dOpenDevice 0x10 (zBufferNear 0x18,
 // fpRenderStateSet 0x20), stringFuncs 0xc4 (strcpy +8, strcat +0x10, strcmp +0x24, stricmp +0x2c, strlen +0x30), memoryFuncs 0x108..0x114.
-// fpRenderStateSet stays NULL until the D3D9 layer (S3) fills it; curCamera / curWorld are not mirrored yet (Camera / World are stubs).
+// fpRenderStateSet / Get and the Im2D entries (0x20..0x34) are filled by mflrw_shadow_device (capi/d3d9dev.cpp) at engine start; curCamera / curWorld mirror librw's engine (NULL until Camera / World are swapped).
 struct RwGlobalsShadow { uint8_t raw[0x140]; };
 static RwGlobalsShadow g_shadow;
 extern "C" {
 RwGlobalsShadow *RwEngineInstance = &g_shadow;
 }
+extern "C" void mflrw_shadow_device(uint8_t *raw);
+extern "C" void mflrw_d3d9_prestart(void);
 static int shadowInit(void);
 static int g_shadowDone = shadowInit();
 
@@ -71,6 +73,7 @@ extern "C" void mflrw_ensure_engine(void){
 	Engine::open(nil);
 	engineHeadless = 0;
 	setFileFuncs();
+	mflrw_shadow_device(g_shadow.raw);
 }
 
 extern "C" {
@@ -87,7 +90,7 @@ RWAPI RwBool RwEngineOpen(RwEngineOpenParams *initParams){
 	return 1;
 }
 // L2:impl
-RWAPI RwBool RwEngineStart(void){ return Engine::start(); }
+RWAPI RwBool RwEngineStart(void){ mflrw_d3d9_prestart(); RwBool r = Engine::start(); mflrw_shadow_device(g_shadow.raw); return r; }
 // L2:impl
 RWAPI RwBool RwEngineStop(void){ Engine::stop(); return 1; }
 // L2:impl

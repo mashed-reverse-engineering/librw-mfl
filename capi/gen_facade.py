@@ -76,6 +76,12 @@ for n, rt, ar, mod, note in [('_rwSqrt', 'RwReal', 'RwReal x', 'core', 'alias of
                              ('RwMalloc', 'void *', 'size_t size, RwUInt32 hint', 'core', 'engine memoryFuncs.rwmalloc (the game reads it from RwEngineInstance+0x108)'),
                              ('RwFree', 'void', 'void *mem', 'core', 'memoryFuncs.rwfree (+0x10c)'),
                              ('RwRealloc', 'void *', 'void *mem, size_t size, RwUInt32 hint', 'core', 'memoryFuncs.rwrealloc (+0x110)'),
+                             ('RwRenderStateSet', 'RwBool', 'RwInt32 state, void *value', 'core-d3d9', 'device table RwEngineInstance+0x20 (exe 0x4e5be0); RW enum mapped to librw states'),
+                             ('RwRenderStateGet', 'RwBool', 'RwInt32 state, void *value', 'core-d3d9', 'device table +0x24 (exe 0x4e5070)'),
+                             ('RwIm2DRenderLine', 'RwBool', 'void *vertices, RwInt32 numVertices, RwInt32 vert1, RwInt32 vert2', 'core-d3d9', 'device table +0x28 (exe 0x4eb6d0)'),
+                             ('RwIm2DRenderTriangle', 'RwBool', 'void *vertices, RwInt32 numVertices, RwInt32 vert1, RwInt32 vert2, RwInt32 vert3', 'core-d3d9', 'device table +0x2c (exe 0x4eb960)'),
+                             ('RwIm2DRenderPrimitive', 'RwBool', 'RwInt32 primType, void *vertices, RwInt32 numVertices', 'core-d3d9', 'device table +0x30 (exe 0x4ebb80)'),
+                             ('RwIm2DRenderIndexedPrimitive', 'RwBool', 'RwInt32 primType, void *vertices, RwInt32 numVertices, void *indices, RwInt32 numIndices', 'core-d3d9', 'device table +0x34 (exe 0x4ebdb0)'),
                              ('RwCalloc', 'void *', 'size_t numObj, size_t sizeObj, RwUInt32 hint', 'core', 'memoryFuncs.rwcalloc (+0x114)')]:
     if n not in protos: protos[n] = (rt, ar); src[n] = 'extra'; extra.append((n, mod, note))
 
