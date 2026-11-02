@@ -367,6 +367,12 @@ EXPORTS
     thunk_FUN_004fc3cd
     thunk_FUN_004fc616
     RwEngineInstance DATA
+    D3DXAssembleShader
+    D3DXMatrixMultiply
+    D3DXMatrixMultiplyTranspose
+    D3DXMatrixTranspose
+    D3DXVec3TransformCoord
+    D3DXVec3TransformNormal
     rwmfl_stub_count
     rwmfl_stub_info
     rwmfl_get_fpucw
