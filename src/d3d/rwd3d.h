@@ -306,6 +306,9 @@ extern bool32 fixedFunction;
 bool32 setTransform(uint32 state, const void *matrix);
 void getTransform(uint32 state, void *matrix);
 void setMaterial_fix(const RGBA &color, const SurfaceProperties &surfProps);
+// MFL: the exe's RwD3D9SetSurfaceProperties (0x4e3d10) and atomic lighting callback (0x4ff4c0); mflAmbient = ambient light sum (0x62e738..)
+extern float32 mflAmbient[3];
+void setSurfaceProperties_MFL(const SurfaceProperties &sp, const RGBA &color, uint32 geoFlags);
 
 void setTexture(uint32 stage, Texture *tex);
 void setMaterial(const RGBA &color, const SurfaceProperties &surfaceprops, float extraSurfProp = 0.0f);
@@ -398,6 +401,7 @@ enum
 };
 
 void lightingCB_Fix(Atomic *atomic);
+void lightingCB_MFL(Atomic *atomic);
 int32 lightingCB_Shader(Atomic *atomic);
 int32 lightingCB_Shader(void);
 // for VS

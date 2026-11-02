@@ -73,22 +73,21 @@ drawInst(d3d9::InstanceDataHeader *header, d3d9::InstanceData *inst)
 		drawInst_simple(header, inst);
 }
 
-// Fixed function default atomic callback (MFL, RW 3.7 style).  lighting: D3D lights + D3DMATERIAL9 = material colour x surface properties;
-// unlit: the material colour is multiplied in by a second texture stage with D3DRS_TEXTUREFACTOR.  NULL texture = no texture bound (d3d::fixedFunction).
-// ponytail: black/unlit path and the "fully inside" frustum test of the exe's callback are not reproduced (not disassembled); B7 replay decides.
+// Fixed function default atomic callback: the exe's _rxD3D9DefaultRenderCallback (0x4faeb0, atomic case) + lighting callback (lightingCB_MFL) + RwD3D9SetSurfaceProperties
+// (setSurfaceProperties_MFL).  Verified against the rwtap replay of course 4 (tools/rwtap/rwreplay.sh ATOMS=1, ROADMAP T-P9).
+// ponytail: the black path (no lighting, not prelit) is transcribed from the disassembly but no course-4 draw takes it; world sectors (type 2, BBox test) are not handled.
 void
 defaultRenderCB_Fix(Atomic *atomic, InstanceDataHeader *header)
 {
 	RawMatrix world;
 	Geometry *geo = atomic->geometry;
+	uint32 gf = geo->flags;
 
-	int lighting = !!(geo->flags & rw::Geometry::LIGHT);
-	if(lighting)
-		d3d::lightingCB_Fix(atomic);
+	d3d::lightingCB_MFL(atomic);
 
-	d3d::setRenderState(D3DRS_LIGHTING, lighting);
-	d3d::setRenderState(D3DRS_COLORVERTEX, !!(geo->flags & Geometry::PRELIT));
-	d3d::setRenderState(D3DRS_NORMALIZENORMALS, lighting);
+	// D3DRS_CLIPPING = the bounding sphere is not fully inside the frustum (RwD3D9CameraIsSphereFullyInsideFrustum)
+	Camera *cam = (Camera*)engine->currentCamera;
+	d3d::setRenderState(D3DRS_CLIPPING, cam->frustumTestSphere(atomic->getWorldBoundingSphere()) == Camera::SPHEREINSIDE ? 0 : 1);
 
 	Frame *f = atomic->getFrame();
 	convMatrix(&world, f->getLTM());
@@ -100,55 +99,113 @@ defaultRenderCB_Fix(Atomic *atomic, InstanceDataHeader *header)
 	setIndices(header->indexBuffer);
 	setVertexDeclaration(header->vertexDeclaration);
 
+	uint32 lighting;
+	d3d::getRenderState(D3DRS_LIGHTING, &lighting);
 	InstanceData *inst = header->inst;
-	for(uint32 i = 0; i < header->numMeshes; i++){
-		Material *m = inst->material;
-		const static rw::RGBA white = { 255, 255, 255, 255 };
-		const rw::RGBA &col = (geo->flags & Geometry::MODULATE) ? m->color : white;
-		SetRenderState(VERTEXALPHA, inst->vertexAlpha || m->color.alpha != 255);
-		d3d::setMaterial_fix(col, m->surfaceProps);
 
-		d3d::setRenderState(D3DRS_AMBIENTMATERIALSOURCE, D3DMCS_MATERIAL);
-		if(geo->flags & Geometry::PRELIT)
-			d3d::setRenderState(D3DRS_EMISSIVEMATERIALSOURCE, D3DMCS_COLOR1);
-		else
-			d3d::setRenderState(D3DRS_EMISSIVEMATERIALSOURCE, D3DMCS_MATERIAL);
-		d3d::setRenderState(D3DRS_DIFFUSEMATERIALSOURCE, inst->vertexAlpha ? D3DMCS_COLOR1 : D3DMCS_MATERIAL);
-
-		if(m->texture){
-			d3d::setTexture(0, m->texture);
-			d3d::setTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
-			d3d::setTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-			d3d::setTextureStageState(0, D3DTSS_COLORARG2, D3DTA_CURRENT);
-			d3d::setTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
-			d3d::setTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-			d3d::setTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
-		}else{
-			d3d::setTexture(0, nil);
-			d3d::setTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
-			d3d::setTextureStageState(0, D3DTSS_COLORARG1, D3DTA_CURRENT);
-			d3d::setTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
-			d3d::setTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+	if(!lighting && !(gf & Geometry::PRELIT)){
+		// black: stage 0 outputs D3DRS_TEXTUREFACTOR (opaque black), only the alpha of an alpha texture is kept
+		uint32 dither, shade;
+		d3d::getRenderState(D3DRS_DITHERENABLE, &dither);
+		d3d::getRenderState(D3DRS_SHADEMODE, &shade);
+		SetRenderState(VERTEXALPHA, 0);
+		d3d::setRenderState(D3DRS_TEXTUREFACTOR, 0xff000000);
+		d3d::setRenderState(D3DRS_DITHERENABLE, 0);
+		d3d::setRenderState(D3DRS_SHADEMODE, D3DSHADE_FLAT);
+		d3d::setTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2);
+		d3d::setTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+		d3d::setTextureStageState(0, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+		d3d::setTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
+		d3d::setTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+		d3d::setTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+		d3d::setTexture(0, nil);
+		bool texAlpha = false;
+		for(uint32 i = 0; i < header->numMeshes; i++, inst++){
+			Material *m = inst->material;
+			if((gf & (Geometry::TEXTURED | Geometry::TEXTURED2)) && m->texture && m->texture->raster && GETD3DRASTEREXT(m->texture->raster)->hasAlpha){
+				d3d::setTexture(0, m->texture);
+				if(!texAlpha){
+					d3d::setTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+					texAlpha = true;
+				}
+			}else if(texAlpha){
+				texAlpha = false;
+				d3d::setTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
+				d3d::setTexture(0, nil);
+			}
+			drawInst(header, inst);
 		}
-
-		if(!lighting && (col.red != 255 || col.green != 255 || col.blue != 255 || col.alpha != 255)){
-			d3d::setRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(col.alpha, col.red, col.green, col.blue));
-			d3d::setTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE);
-			d3d::setTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
-			d3d::setTextureStageState(1, D3DTSS_COLORARG2, D3DTA_TFACTOR);
-			d3d::setTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
-			d3d::setTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
-			d3d::setTextureStageState(1, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
-		}else{
-			d3d::setTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-			d3d::setTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
-		}
-
-		drawInst(header, inst);
-		inst++;
+		d3d::setRenderState(D3DRS_DITHERENABLE, dither);
+		d3d::setRenderState(D3DRS_SHADEMODE, shade);
+		return;
 	}
-	d3d::setTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-	d3d::setTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+
+	// mode bit 0 = textured (stage 0 texture x diffuse), bit 1 = unlit material colour via D3DRS_TEXTUREFACTOR on stage 1 (stage 1 modulates CURRENT with it)
+	uint32 prev = 0x80000000;
+	for(uint32 i = 0; i < header->numMeshes; i++, inst++){
+		Material *m = inst->material;
+		uint32 mode = 0;
+		SetRenderState(VERTEXALPHA, inst->vertexAlpha || m->color.alpha != 255);
+		if(lighting)
+			d3d::setSurfaceProperties_MFL(m->surfaceProps, m->color, gf);
+		else if((gf & Geometry::MODULATE) && *(uint32*)&m->color != 0xffffffffu){
+			d3d::setRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(m->color.alpha, m->color.red, m->color.green, m->color.blue));
+			mode = 2;
+		}
+		if(m->texture && (gf & (Geometry::TEXTURED | Geometry::TEXTURED2))){
+			mode |= 1;
+			d3d::setTexture(0, m->texture);
+		}else
+			d3d::setTexture(0, nil);
+
+		if(mode != prev){
+			if(mode & 1){
+				if(!(prev & 1)){
+					d3d::setTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+					d3d::setTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+					d3d::setTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+					d3d::setTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+					d3d::setTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+					d3d::setTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+				}
+				if(mode & 2){
+					d3d::setTextureStageState(1, D3DTSS_COLOROP, D3DTOP_MODULATE);
+					d3d::setTextureStageState(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
+					d3d::setTextureStageState(1, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+					d3d::setTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+					d3d::setTextureStageState(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
+					d3d::setTextureStageState(1, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+				}else if(prev == 3){
+					d3d::setTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+					d3d::setTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+				}
+			}else{
+				if(mode & 2){
+					d3d::setTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+					d3d::setTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+					d3d::setTextureStageState(0, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+					d3d::setTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+					d3d::setTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+					d3d::setTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+				}else{
+					d3d::setTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG2);
+					d3d::setTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+					d3d::setTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
+					d3d::setTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+				}
+				if(prev == 3){
+					d3d::setTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+					d3d::setTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+				}
+			}
+			prev = mode;
+		}
+		drawInst(header, inst);
+	}
+	if(prev == 3){
+		d3d::setTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+		d3d::setTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+	}
 }
 
 void

@@ -508,9 +508,17 @@ Atomic::getWorldBoundingSphere(void)
 	   (this->object.object.privateFlags & WORLDBOUNDDIRTY) == 0)
 		return s;
 	Matrix *ltm = this->getFrame()->getLTM();
-	// TODO: support scaling
 	V3d::transformPoints(&s->center, &this->boundingSphere.center, 1, ltm);
+	// MFL: RpAtomicGetWorldBoundingSphere (0x4f6240): a matrix that is not orthonormal scales the radius by its longest axis
 	s->radius = this->boundingSphere.radius;
+	if((ltm->flags & 3) != 3){
+		float32 r2 = ltm->right.x*ltm->right.x + ltm->right.y*ltm->right.y + ltm->right.z*ltm->right.z;
+		float32 u2 = ltm->up.x*ltm->up.x + ltm->up.y*ltm->up.y + ltm->up.z*ltm->up.z;
+		float32 a2 = ltm->at.x*ltm->at.x + ltm->at.y*ltm->at.y + ltm->at.z*ltm->at.z;
+		float32 m = r2 < u2 ? u2 : r2;
+		m = m < a2 ? a2 : m;
+		s->radius = sqrtf(m)*this->boundingSphere.radius;
+	}
 	this->object.object.privateFlags &= ~WORLDBOUNDDIRTY;
 	return s;
 }

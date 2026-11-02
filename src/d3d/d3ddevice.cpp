@@ -202,7 +202,8 @@ static uint32 stencilFuncMap[] = {
 static uint32 alphafuncMap[] = {
 	D3DCMP_ALWAYS,
 	D3DCMP_GREATEREQUAL,
-	D3DCMP_LESS
+	D3DCMP_LESS,
+	D3DCMP_GREATER
 };
 
 static uint32 cullmodeMap[] = {
@@ -625,6 +626,62 @@ setMaterial_fix(const RGBA &color, const SurfaceProperties &surfProps)
 	setD3dMaterial(&mat9);
 }
 
+
+// MFL: RwD3D9SetSurfaceProperties (0x4e3d10).  flags = geometry flags (0x40 modulate material colour, 0x08 prelit).  The D3D ambient light colour is white (ambient lights are folded
+// into the material: ambient = ambient light sum * surface ambient [* colour]); with prelit + modulate the material colour goes to D3DRS_AMBIENT and the prelit colours to the ambient source.
+float32 mflAmbient[3];
+// RW's cache of these three states starts at 0 (the D3D default of COLORVERTEX is TRUE): a write of 0 is skipped, the device keeps COLORVERTEX = 1 until a prelit mesh asks for 1 and later 0.
+static uint32 rwColorVertex, rwAmbientSrc, rwEmissiveSrc;
+static void
+setCached(uint32 state, uint32 &shadow, uint32 value)
+{
+	if(shadow != value){ shadow = value; setRenderState(state, value); }
+}
+void
+setSurfaceProperties_MFL(const SurfaceProperties &sp, const RGBA &color, uint32 geoFlags)
+{
+	D3DMATERIAL9 mat9;
+	const float k = 1.0f/255.0f;
+	uint32 packed = *(const uint32*)&color;
+	bool modulate = (geoFlags & Geometry::MODULATE) && packed != 0xffffffffu;
+	bool prelit = (geoFlags & Geometry::PRELIT) != 0;
+	float sa = sp.ambient, sd = sp.diffuse;
+	mat9.Specular.r = mat9.Specular.g = mat9.Specular.b = 0.0f; mat9.Specular.a = 1.0f;
+	mat9.Power = 0.0f;
+	if(modulate){
+		float d = sd*k;
+		mat9.Diffuse.r = color.red*d; mat9.Diffuse.g = color.green*d; mat9.Diffuse.b = color.blue*d; mat9.Diffuse.a = color.alpha*k;
+		float a = sa*k;
+		float cr = color.red*mflAmbient[0]*a, cg = color.green*mflAmbient[1]*a, cb = color.blue*mflAmbient[2]*a;
+		if(prelit){
+			setRenderState(D3DRS_AMBIENT, D3DCOLOR_ARGB(color.alpha, color.red, color.green, color.blue));
+			setCached(D3DRS_COLORVERTEX, rwColorVertex, 1);
+			setCached(D3DRS_AMBIENTMATERIALSOURCE, rwAmbientSrc, D3DMCS_COLOR1);
+			setCached(D3DRS_EMISSIVEMATERIALSOURCE, rwEmissiveSrc, D3DMCS_MATERIAL);
+			mat9.Ambient.r = mat9.Ambient.g = mat9.Ambient.b = 0.0f; mat9.Ambient.a = 1.0f;
+			mat9.Emissive.r = cr; mat9.Emissive.g = cg; mat9.Emissive.b = cb; mat9.Emissive.a = 1.0f;
+		}else{
+			setRenderState(D3DRS_AMBIENT, 0xffffffff);
+			setCached(D3DRS_COLORVERTEX, rwColorVertex, 0);
+			setCached(D3DRS_AMBIENTMATERIALSOURCE, rwAmbientSrc, D3DMCS_MATERIAL);
+			setCached(D3DRS_EMISSIVEMATERIALSOURCE, rwEmissiveSrc, D3DMCS_MATERIAL);
+			mat9.Ambient.r = cr; mat9.Ambient.g = cg; mat9.Ambient.b = cb; mat9.Ambient.a = 1.0f;
+			mat9.Emissive.r = mat9.Emissive.g = mat9.Emissive.b = 0.0f; mat9.Emissive.a = 1.0f;
+		}
+	}else{
+		mat9.Diffuse.r = mat9.Diffuse.g = mat9.Diffuse.b = sd; mat9.Diffuse.a = 1.0f;
+		setRenderState(D3DRS_AMBIENT, 0xffffffff);
+		setCached(D3DRS_AMBIENTMATERIALSOURCE, rwAmbientSrc, D3DMCS_MATERIAL);
+		setCached(D3DRS_COLORVERTEX, rwColorVertex, prelit);
+		setCached(D3DRS_EMISSIVEMATERIALSOURCE, rwEmissiveSrc, prelit ? D3DMCS_COLOR1 : D3DMCS_MATERIAL);
+		mat9.Emissive.r = mat9.Emissive.g = mat9.Emissive.b = 0.0f; mat9.Emissive.a = 1.0f;
+		mat9.Ambient.r = sa == 1.0f ? mflAmbient[0] : mflAmbient[0]*sa;
+		mat9.Ambient.g = sa == 1.0f ? mflAmbient[1] : mflAmbient[1]*sa;
+		mat9.Ambient.b = sa == 1.0f ? mflAmbient[2] : mflAmbient[2]*sa;
+		mat9.Ambient.a = 1.0f;
+	}
+	setD3dMaterial(&mat9);
+}
 
 void
 setMaterial(const RGBA &color, const SurfaceProperties &surfaceprops, float extraSurfProp)
@@ -1711,10 +1768,18 @@ initD3D(void)
 	unlockVertices(constantVertexStream);
 	if(!fixedFunction) setStreamSource(2, constantVertexStream, 0, 0);
 
+	if(fixedFunction){	// RW 3.7 default block: alpha test GREATER 0, dither on (original trace, first draw)
+		d3ddevice->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATER);
+		rwStateCache.alphafunc = ALPHAGREATER;
+		d3ddevice->SetRenderState(D3DRS_ALPHAREF, 0);
+		rwStateCache.alpharef = 0;
+		d3ddevice->SetRenderState(D3DRS_DITHERENABLE, TRUE);
+	}else{
 	d3ddevice->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
 	rwStateCache.alphafunc = ALPHAGREATEREQUAL;
 	d3ddevice->SetRenderState(D3DRS_ALPHAREF, 10);
 	rwStateCache.alpharef = 10;
+	}
 
 	rwStateCache.gsalpha = 0;
 	rwStateCache.gsalpharef = 128;
@@ -1732,6 +1797,11 @@ initD3D(void)
 		rwStateCache.cullmode = CULLNONE;
 	}
 
+	if(fixedFunction){	// RW 3.7 default block (0x4e4320): material colour sources are the material, no local viewer (original trace, first draw)
+		d3ddevice->SetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, D3DMCS_MATERIAL);
+		d3ddevice->SetRenderState(D3DRS_SPECULARMATERIALSOURCE, D3DMCS_MATERIAL);
+		d3ddevice->SetRenderState(D3DRS_LOCALVIEWER, FALSE);
+	}
 	if(!fixedFunction) d3ddevice->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);	// D3D default; the original never sets it
 	d3ddevice->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
 	rwStateCache.srcblend = BLENDSRCALPHA;
@@ -1907,7 +1977,9 @@ initD3D(void)
 		}
 	// init rw cache
 	for(t = 0; t < MAXNUMSTAGES; t++){
-		setFilterMode(t, Texture::NEAREST);
+		// MFL: the RW default block sets every stage to linear filtering and an opaque black border colour (the original's MINFILTER of stages 1..7 never changes afterwards)
+		if(fixedFunction) setSamplerState(t, D3DSAMP_BORDERCOLOR, 0xff000000);
+		setFilterMode(t, fixedFunction ? Texture::LINEAR : Texture::NEAREST);
 		setAddressU(t, Texture::WRAP);
 		setAddressV(t, Texture::WRAP);
 	}

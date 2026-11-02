@@ -65,7 +65,7 @@ int main(int argc, char **argv){
 	CHECK(RwStreamSkip_p(s, 4) == s);
 	CHECK(!RwStreamFindChunk_p(s, 0x10, &len, &ver));			/* end of stream */
 	struct { uint8_t *start; uint32_t length; } back = { 0, 0 };
-	CHECK(RwStreamClose_p(s, &back) && back.start == (uint8_t *)buf && back.length == 36);
+	CHECK(RwStreamClose_p(s, &back) && back.start == 0 && back.length == 0);	/* 0x4dc2a0: pData is written back only for WRITE / APPEND memory streams */
 
 	/* FILENAME through stdio (no file system registered yet) */
 	char tmp[MAX_PATH]; GetTempPathA(sizeof tmp, tmp); strcat(tmp, "s2c_test.bin");

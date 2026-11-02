@@ -44,7 +44,8 @@ enum AlphaTestFunc
 {
 	ALPHAALWAYS,
 	ALPHAGREATEREQUAL,
-	ALPHALESS
+	ALPHALESS,
+	ALPHAGREATER	// MFL: not an RW enum value, only the RW 3.7 D3D9 default (GREATER 0)
 };
 
 enum StencilOp

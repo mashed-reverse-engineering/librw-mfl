@@ -220,6 +220,70 @@ lightingCB_Fix(Atomic *atomic)
 }
 
 
+// MFL: _rwD3D9AtomicDefaultLightingCallback (0x4ff4c0) + _rwD3D9LightsEnable (0x505b20).  Geometry without the LIGHT flag: lighting off.  Otherwise the ambient lights of the world
+// are summed into mflAmbient (used by setSurfaceProperties_MFL, D3DRS_AMBIENT is set there), directional lights (only with normals) and local lights become D3D lights,
+// D3DRS_LIGHTING = any light found; no light at all: D3DRS_AMBIENT = 0.
+void
+lightingCB_MFL(Atomic *atomic)
+{
+	World *world = (World*)engine->currentWorld;
+	if(!(atomic->geometry->flags & Geometry::LIGHT) || world == nil){
+		d3d::setRenderState(D3DRS_LIGHTING, 0);
+		return;
+	}
+	WorldLights lightData;
+	Light *directionals[8];
+	Light *locals[8];
+	lightData.directionals = directionals;
+	lightData.numDirectionals = 8;
+	lightData.locals = locals;
+	lightData.numLocals = 8;
+	world->enumerateLights(atomic, &lightData);
+	mflAmbient[0] = lightData.ambient.red; mflAmbient[1] = lightData.ambient.green; mflAmbient[2] = lightData.ambient.blue;
+	bool found = lightData.numAmbients || lightData.numDirectionals || lightData.numLocals;
+	if(!found)
+		d3d::setRenderState(D3DRS_AMBIENT, 0);
+	// ponytail: only the directional light conversion is checked against the exe (course 4 has one); locals use the old librw conversion (RwD3D9SetLight 0x505780 / 0x5058b0 not diffed)
+	lightData.ambient.red = lightData.ambient.green = lightData.ambient.blue = 0.0f;
+	D3DLIGHT9 light;
+	memset(&light, 0, sizeof light);
+	light.Type = D3DLIGHT_DIRECTIONAL;
+	light.Specular.a = 1.0f;
+	light.Ambient.a = 1.0f;
+	int n = 0;
+	for(int i = 0; i < lightData.numDirectionals && n < MAX_LIGHTS; i++){
+		Light *l = lightData.directionals[i];
+		light.Diffuse = *(D3DCOLORVALUE*)&l->color;
+		light.Direction = *(D3DVECTOR*)&l->getFrame()->getLTM()->at;
+		d3ddevice->SetLight(n, &light);
+		d3ddevice->LightEnable(n, TRUE);
+		n++;
+	}
+	for(int i = 0; i < lightData.numLocals && n < MAX_LIGHTS; i++){
+		Light *l = lightData.locals[i];
+		light.Diffuse = *(D3DCOLORVALUE*)&l->color;
+		light.Position = *(D3DVECTOR*)&l->getFrame()->getLTM()->pos;
+		light.Range = l->radius;
+		light.Falloff = 1.0f;
+		light.Attenuation0 = 1.0f;
+		light.Attenuation1 = 0.0f/l->radius;
+		light.Attenuation2 = 5.0f/(l->radius*l->radius);
+		if(l->getType() == Light::POINT){
+			light.Type = D3DLIGHT_POINT; light.Direction.x = light.Direction.y = light.Direction.z = 0.0f;
+		}else{
+			light.Type = D3DLIGHT_SPOT; light.Direction = *(D3DVECTOR*)&l->getFrame()->getLTM()->at;
+			light.Theta = l->getType() == Light::SPOT ? l->getAngle()*2.0f : 0.0f; light.Phi = l->getAngle()*2.0f;
+		}
+		d3ddevice->SetLight(n, &light);
+		d3ddevice->LightEnable(n, TRUE);
+		n++;
+		light.Type = D3DLIGHT_DIRECTIONAL;
+	}
+	for(; n < MAX_LIGHTS; n++)
+		d3ddevice->LightEnable(n, FALSE);
+	d3d::setRenderState(D3DRS_LIGHTING, found);
+}
+
 struct LightVS
 {
 	V3d color; float param0;

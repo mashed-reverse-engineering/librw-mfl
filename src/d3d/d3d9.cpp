@@ -493,6 +493,11 @@ defaultInstanceCB(Geometry *geo, InstanceDataHeader *header, bool32 reinstance)
 
 	bool isPrelit = (geo->flags & Geometry::PRELIT) != 0;
 	bool hasNormals = (geo->flags & Geometry::NORMALS) != 0;
+#ifdef RW_D3D9
+	const bool ff = fixedFunction != 0;
+#else
+	const bool ff = false;
+#endif
 
 	// TODO: support both vertex buffers
 
@@ -515,6 +520,46 @@ defaultInstanceCB(Geometry *geo, InstanceDataHeader *header, bool32 reinstance)
 		uint16 stride = 12;
 		s->geometryFlags |= 0x2;
 
+		// MFL: the RW 3.7 D3D9 instancer of the original exe orders the stream position, normal, prelit colour, tex coords (seen in the draw traces of the
+		// exe) and has no constant stream 2 fallback in the fixed function pipeline; librw's shader layout (position, colour, tex coords, normal) is kept otherwise.
+		if(ff){
+			if(hasNormals){
+				dcl[i].stream = 0;
+				dcl[i].offset = stride;
+				dcl[i].type = D3DDECLTYPE_FLOAT3;
+				dcl[i].method = D3DDECLMETHOD_DEFAULT;
+				dcl[i].usage = D3DDECLUSAGE_NORMAL;
+				dcl[i].usageIndex = 0;
+				i++;
+				s->geometryFlags |= 0x4;
+				stride += 12;
+			}
+
+			if(isPrelit){
+				dcl[i].stream = 0;
+				dcl[i].offset = stride;
+				dcl[i].type = D3DDECLTYPE_D3DCOLOR;
+				dcl[i].method = D3DDECLMETHOD_DEFAULT;
+				dcl[i].usage = D3DDECLUSAGE_COLOR;
+				dcl[i].usageIndex = 0;
+				i++;
+				s->geometryFlags |= 0x8;
+				stride += 4;
+			}
+
+			for(int32 n = 0; n < geo->numTexCoordSets; n++){
+				dcl[i].stream = 0;
+				dcl[i].offset = stride;
+				dcl[i].type = D3DDECLTYPE_FLOAT2;
+				dcl[i].method = D3DDECLMETHOD_DEFAULT;
+				dcl[i].usage = D3DDECLUSAGE_TEXCOORD;
+				dcl[i].usageIndex = (uint8)n;
+				i++;
+				s->geometryFlags |= 0x10 << n;
+				stride += 8;
+			}
+
+		}else{
 		if(isPrelit){
 			dcl[i].stream = 0;
 			dcl[i].offset = stride;
@@ -551,24 +596,28 @@ defaultInstanceCB(Geometry *geo, InstanceDataHeader *header, bool32 reinstance)
 			stride += 12;
 		}
 
-		// We expect some attributes to always be there, use the constant buffer as fallback
-		if(!isPrelit){
-			dcl[i].stream = 2;
-			dcl[i].offset = offsetof(VertexConstantData, color);
-			dcl[i].type = D3DDECLTYPE_D3DCOLOR;
-			dcl[i].method = D3DDECLMETHOD_DEFAULT;
-			dcl[i].usage = D3DDECLUSAGE_COLOR;
-			dcl[i].usageIndex = 0;
-			i++;
 		}
-		if(geo->numTexCoordSets == 0){
-			dcl[i].stream = 2;
-			dcl[i].offset = offsetof(VertexConstantData, texCoors[0]);
-			dcl[i].type = D3DDECLTYPE_FLOAT2;
-			dcl[i].method = D3DDECLMETHOD_DEFAULT;
-			dcl[i].usage = D3DDECLUSAGE_TEXCOORD;
-			dcl[i].usageIndex = 0;
-			i++;
+		if(!ff){
+		// We expect some attributes to always be there, use the constant buffer as fallback
+			if(!isPrelit){
+				dcl[i].stream = 2;
+				dcl[i].offset = offsetof(VertexConstantData, color);
+				dcl[i].type = D3DDECLTYPE_D3DCOLOR;
+				dcl[i].method = D3DDECLMETHOD_DEFAULT;
+				dcl[i].usage = D3DDECLUSAGE_COLOR;
+				dcl[i].usageIndex = 0;
+				i++;
+			}
+			if(geo->numTexCoordSets == 0){
+				dcl[i].stream = 2;
+				dcl[i].offset = offsetof(VertexConstantData, texCoors[0]);
+				dcl[i].type = D3DDECLTYPE_FLOAT2;
+				dcl[i].method = D3DDECLMETHOD_DEFAULT;
+				dcl[i].usage = D3DDECLUSAGE_TEXCOORD;
+				dcl[i].usageIndex = 0;
+				i++;
+			}
+
 		}
 
 		dcl[i] = D3DDECL_END();
