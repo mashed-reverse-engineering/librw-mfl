@@ -82,7 +82,15 @@ for n, rt, ar, mod, note in [('_rwSqrt', 'RwReal', 'RwReal x', 'core', 'alias of
                              ('RwIm2DRenderTriangle', 'RwBool', 'void *vertices, RwInt32 numVertices, RwInt32 vert1, RwInt32 vert2, RwInt32 vert3', 'core-d3d9', 'device table +0x2c (exe 0x4eb960)'),
                              ('RwIm2DRenderPrimitive', 'RwBool', 'RwInt32 primType, void *vertices, RwInt32 numVertices', 'core-d3d9', 'device table +0x30 (exe 0x4ebb80)'),
                              ('RwIm2DRenderIndexedPrimitive', 'RwBool', 'RwInt32 primType, void *vertices, RwInt32 numVertices, void *indices, RwInt32 numIndices', 'core-d3d9', 'device table +0x34 (exe 0x4ebdb0)'),
-                             ('RwCalloc', 'void *', 'size_t numObj, size_t sizeObj, RwUInt32 hint', 'core', 'memoryFuncs.rwcalloc (+0x114)')]:
+                             ('RwCalloc', 'void *', 'size_t numObj, size_t sizeObj, RwUInt32 hint', 'core', 'memoryFuncs.rwcalloc (+0x114)'),
+                             # S4 g1 (capi/g1.cpp): the remaining matrix / quaternion entries the game's code calls, swapped with the rest of the group
+                             ('_rwMatrixDeterminant', 'RwReal', 'const RwMatrix *matrix', 'core', '0x4d38f0 (RwMatrixOptimize, _rwFrameListStreamRead)'),
+                             ('_rwMatrixOrthogonalError', 'RwReal', 'const RwMatrix *matrix', 'core', '0x4d3940'),
+                             ('_rwMatrixNormalError', 'RwReal', 'const RwMatrix *matrix', 'core', '0x4d39a0'),
+                             ('_rwMatrixIdentityError', 'RwReal', 'const RwMatrix *matrix', 'core', '0x4d3a30'),
+                             ('RwMatrixOptimize', 'RwMatrix *', 'RwMatrix *matrix, const RwMatrixTolerance *tolerance', 'core', '0x4d3c00'),
+                             ('RwMatrixRotateOneMinusCosineSine', 'RwMatrix *', 'RwMatrix *matrix, const RwV3d *unitAxis, RwReal oneMinusCosine, RwReal sine, RwOpCombineType combineOp', 'core', '0x4d4120'),
+                             ('RtQuatTransformVectors', 'RwV3d *', 'RwV3d *vectorsOut, const RwV3d *vectorsIn, const RwInt32 numPoints, const RtQuat *quat', 'toolkit', '0x557340')]:
     if n not in protos: protos[n] = (rt, ar); src[n] = 'extra'; extra.append((n, mod, note))
 
 idents = set()

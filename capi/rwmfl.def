@@ -203,6 +203,7 @@ EXPORTS
     RtPNGImageRead
     RtQuatConvertFromMatrix
     RtQuatSetupSlerpCache
+    RtQuatTransformVectors
     RwBBoxAddPoint
     RwBBoxCalculate
     RwBBoxContainsPoint
@@ -291,9 +292,11 @@ EXPORTS
     RwMatrixDestroy
     RwMatrixInvert
     RwMatrixMultiply
+    RwMatrixOptimize
     RwMatrixOrthoNormalize
     RwMatrixQueryRotate
     RwMatrixRotate
+    RwMatrixRotateOneMinusCosineSine
     RwMatrixScale
     RwMatrixStreamRead
     RwMatrixTransform
@@ -343,6 +346,10 @@ EXPORTS
     RxPipelineLock
     _rtFSInit
     _rwInvSqrt
+    _rwMatrixDeterminant
+    _rwMatrixIdentityError
+    _rwMatrixNormalError
+    _rwMatrixOrthogonalError
     _rwSqrt
     lib_5501c0
     rpAtomicResyncInterpolatedSphere

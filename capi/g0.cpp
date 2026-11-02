@@ -145,35 +145,15 @@ RWAPI RwMatrix *RwMatrixScale(RwMatrix *m, const RwV3d *s, RwOpCombineType op){
 	return m;
 }
 
-// L1:librw (0x4d3cd0; identity shortcuts and flag rules of librw, not bit-checked)
-RWAPI RwMatrix *RwMatrixMultiply(RwMatrix *out, const RwMatrix *a, const RwMatrix *b){
-	return (RwMatrix*)rw::Matrix::mult((rw::Matrix*)out, (const rw::Matrix*)a, (const rw::Matrix*)b); }
-// L1:librw (0x4d4490)
-RWAPI RwMatrix *RwMatrixInvert(RwMatrix *inv, const RwMatrix *m){
-	return (RwMatrix*)rw::Matrix::invert((rw::Matrix*)inv, (const rw::Matrix*)m); }
-// L1:librw (0x4d43f0, angle in degrees)
-RWAPI RwMatrix *RwMatrixRotate(RwMatrix *m, const RwV3d *axis, RwReal angle, RwOpCombineType op){
-	return (RwMatrix*)((rw::Matrix*)m)->rotate((const rw::V3d*)axis, angle, (rw::CombineOp)op); }
-// L1:librw (0x4d49c0)
-RWAPI RwMatrix *RwMatrixTransform(RwMatrix *m, const RwMatrix *t, RwOpCombineType op){
-	return (RwMatrix*)((rw::Matrix*)m)->transform((const rw::Matrix*)t, (rw::CombineOp)op); }
+// RwMatrixMultiply / Invert / Rotate / Transform, RtIntersectionLineTriangle, RpRandom / RpRandomSeed: disasm-exact in g1.cpp (S4)
 
 // ---- Rt intersection / barycentric: librw implementations, diff-verified against a float32 port of the decompile
-// L1:librw (0x557860)
-RWAPI RwBool RtIntersectionLineTriangle(const RwV3d *s, const RwV3d *d, const RwV3d *v0, const RwV3d *v1, const RwV3d *v2, RwReal *dist){
-	return rw::intersectionLineTriangle((const rw::V3d*)s, (const rw::V3d*)d, (const rw::V3d*)v0, (const rw::V3d*)v1, (const rw::V3d*)v2, dist); }
 // L1:librw (0x569110)
 RWAPI RwBool RtLineSphereIntersectionTest(RwLine *line, RwSphere *sphere, RwReal *dist){
 	return rw::lineSphereIntersectionTest((const rw::Line*)line, (const rw::Sphere*)sphere, dist); }
 // L1:librw (0x569610)
 RWAPI RwBool RtBaryGetTransform(RtBaryTransform m, RwReal *scale, const RwV3d *v0, const RwV3d *v1, const RwV3d *v2){
 	return rw::baryGetTransform((rw::Matrix*)m, scale, (const rw::V3d*)v0, (const rw::V3d*)v1, (const rw::V3d*)v2); }
-
-// ---- RpRandom: bit-exact to the disassembly (MFL_NOTES, independent check), self-contained state
-// L1:librw (0x544e80)
-RWAPI RwUInt32 RpRandom(void){ return rw::extra::random(); }
-// L1:librw (RpRandomSeed)
-RWAPI void RpRandomSeed(RwUInt32 seed){ rw::extra::randomSeed(seed); }
 
 RWAPI RwUInt32 rwmfl_get_fpucw(void){ unsigned short cw; __asm__ volatile("fnstcw %0" : "=m"(cw)); return cw; }
 

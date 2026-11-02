@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include "rwmfl.h"
 
-static unsigned hits[218]; static const char *const names[218] = {
+static unsigned hits[214]; static const char *const names[214] = {
 	"FUN_004da0e0",
 	"FUN_004dbca0",
 	"FUN_004dbda0",
@@ -156,8 +156,6 @@ static unsigned hits[218]; static const char *const names[218] = {
 	"RtDictSchemaStreamReadDict",
 	"RtLtMapMaterialGetAreaLightColor",
 	"RtPNGImageRead",
-	"RtQuatConvertFromMatrix",
-	"RtQuatSetupSlerpCache",
 	"RwBBoxAddPoint",
 	"RwBBoxCalculate",
 	"RwBBoxContainsPoint",
@@ -190,8 +188,6 @@ static unsigned hits[218]; static const char *const names[218] = {
 	"RwImageWrite",
 	"RwMatrixCreate",
 	"RwMatrixDestroy",
-	"RwMatrixOrthoNormalize",
-	"RwMatrixQueryRotate",
 	"RwMatrixStreamRead",
 	"RwOsGetMemoryInterface",
 	"RwRasterSubRaster",
@@ -224,8 +220,8 @@ static unsigned hits[218]; static const char *const names[218] = {
 };
 static void hit(int i){ if (++hits[i] == 1) fprintf(stderr, "[mflrw] stub called: %s\n", names[i]); }
 extern "C" {
-int RWAPI rwmfl_stub_count(void){ return 218; }
-int RWAPI rwmfl_stub_info(int i, const char **n, unsigned *h){ if (i < 0 || i >= 218) return 0; if (n) *n = names[i]; if (h) *h = hits[i]; return 1; }
+int RWAPI rwmfl_stub_count(void){ return 214; }
+int RWAPI rwmfl_stub_info(int i, const char **n, unsigned *h){ if (i < 0 || i >= 214) return 0; if (n) *n = names[i]; if (h) *h = hits[i]; return 1; }
 int RWAPI FUN_004da0e0(void) { hit(0); return (int)0; }
 int RWAPI FUN_004dbca0(void) { hit(1); return (int)0; }
 int RWAPI FUN_004dbda0(int p0, int p1, int p2, int p3, int p4, int p5, int p6, int p7, int p8, int p9, int p10, int p11, int p12) { hit(2); return (int)0; }
@@ -379,69 +375,65 @@ RtDictSchema * RWAPI RtDictSchemaSetCurrentDict(RtDictSchema *schema, RtDict *di
 RtDict * RWAPI RtDictSchemaStreamReadDict(RtDictSchema *schema, RwStream *stream) { hit(150); return (RtDict *)0; }
 RwRGBA RWAPI RtLtMapMaterialGetAreaLightColor(RpMaterial *material) { hit(151); static RwRGBA z; return z; }
 RwImage * RWAPI RtPNGImageRead(const RwChar * imageName) { hit(152); return (RwImage *)0; }
-RwBool RWAPI RtQuatConvertFromMatrix(RtQuat * const qpQuat, const RwMatrix * const mpMatrix) { hit(153); return (RwBool)0; }
-void RWAPI RtQuatSetupSlerpCache(RtQuat * qpFrom, RtQuat * qpTo, RtQuatSlerpCache * sCache) { hit(154); }
-RwBBox * RWAPI RwBBoxAddPoint(RwBBox *boundBox, const RwV3d *vertex) { hit(155); return (RwBBox *)0; }
-RwBBox * RWAPI RwBBoxCalculate(RwBBox *boundBox, const RwV3d *verts, RwInt32 numVerts) { hit(156); return (RwBBox *)0; }
-RwBool RWAPI RwBBoxContainsPoint(const RwBBox *boundBox, const RwV3d *vertex) { hit(157); return (RwBool)0; }
-RwBBox * RWAPI RwBBoxInitialize(RwBBox *boundBox, const RwV3d *vertex) { hit(158); return (RwBBox *)0; }
-RwCamera * RWAPI RwCameraBeginUpdate(RwCamera * camera) { hit(159); return (RwCamera *)0; }
-const RwCamera * RWAPI RwCameraCalcPixelRay(const RwCamera *camera, RwLine *line, const RwV2d *pixel) { hit(160); return (const RwCamera *)0; }
-RwCamera * RWAPI RwCameraClear(RwCamera * camera, RwRGBA * colour, RwInt32 clearMode) { hit(161); return (RwCamera *)0; }
-RwCamera * RWAPI RwCameraClone(RwCamera * camera) { hit(162); return (RwCamera *)0; }
-RwCamera * RWAPI RwCameraCreate(void) { hit(163); return (RwCamera *)0; }
-RwBool RWAPI RwCameraDestroy(RwCamera * camera) { hit(164); return (RwBool)0; }
-RwCamera * RWAPI RwCameraEndUpdate(RwCamera * camera) { hit(165); return (RwCamera *)0; }
-RwFrustumTestResult RWAPI RwCameraFrustumTestSphere(const RwCamera * camera, const RwSphere * sphere) { hit(166); return (RwFrustumTestResult)0; }
-RwCamera * RWAPI RwCameraSetFarClipPlane(RwCamera *camera, RwReal farClip) { hit(167); return (RwCamera *)0; }
-RwCamera * RWAPI RwCameraSetNearClipPlane(RwCamera *camera, RwReal nearClip) { hit(168); return (RwCamera *)0; }
-RwCamera * RWAPI RwCameraSetProjection(RwCamera *camera, RwCameraProjection projection) { hit(169); return (RwCamera *)0; }
-RwCamera * RWAPI RwCameraSetViewWindow(RwCamera *camera, const RwV2d *viewWindow) { hit(170); return (RwCamera *)0; }
-RwCamera * RWAPI RwCameraShowRaster(RwCamera * camera, void *pDev, RwUInt32 flags) { hit(171); return (RwCamera *)0; }
-RwFrame * RWAPI RwFrameOrthoNormalize(RwFrame * frame) { hit(172); return (RwFrame *)0; }
-RwBool RWAPI RwIm3DEnd(void) { hit(173); return (RwBool)0; }
-RwBool RWAPI RwIm3DRenderIndexedPrimitive(RwPrimitiveType primType, RwImVertexIndex *indices, RwInt32 numIndices) { hit(174); return (RwBool)0; }
-RwBool RWAPI RwIm3DRenderLine(RwInt32 vert1, RwInt32 vert2) { hit(175); return (RwBool)0; }
-RwBool RWAPI RwIm3DRenderPrimitive(RwPrimitiveType primType) { hit(176); return (RwBool)0; }
-void * RWAPI RwIm3DTransform(RwIm3DVertex *pVerts, RwUInt32 numVerts, RwMatrix *ltm, RwUInt32 flags) { hit(177); return (void *)0; }
-RwImage * RWAPI RwImageAllocatePixels(RwImage * image) { hit(178); return (RwImage *)0; }
-RwImage * RWAPI RwImageCreate(RwInt32 width, RwInt32 height, RwInt32 depth) { hit(179); return (RwImage *)0; }
-RwBool RWAPI RwImageDestroy(RwImage * image) { hit(180); return (RwBool)0; }
-RwBool RWAPI RwImageRegisterImageFormat(const RwChar * extension, RwImageCallBackRead imageRead, RwImageCallBackWrite imageWrite) { hit(181); return (RwBool)0; }
-RwImage * RWAPI RwImageSetFromRaster(RwImage *image, RwRaster *raster) { hit(182); return (RwImage *)0; }
-const RwChar * RWAPI RwImageSetPath(const RwChar * path) { hit(183); return (const RwChar *)0; }
-RwImage * RWAPI RwImageWrite(RwImage * image, const RwChar * imageName) { hit(184); return (RwImage *)0; }
-RwMatrix * RWAPI RwMatrixCreate(void) { hit(185); return (RwMatrix *)0; }
-RwBool RWAPI RwMatrixDestroy(RwMatrix * mpMat) { hit(186); return (RwBool)0; }
-RwMatrix * RWAPI RwMatrixOrthoNormalize(RwMatrix * matrixOut, const RwMatrix * matrixIn) { hit(187); return (RwMatrix *)0; }
-const RwMatrix * RWAPI RwMatrixQueryRotate(const RwMatrix * matrix, RwV3d * unitAxis, RwReal * angle, RwV3d * center) { hit(188); return (const RwMatrix *)0; }
-RwMatrix * RWAPI RwMatrixStreamRead(RwStream * stream, RwMatrix * matrix) { hit(189); return (RwMatrix *)0; }
-RwMemoryFunctions * RWAPI RwOsGetMemoryInterface(void) { hit(190); return (RwMemoryFunctions *)0; }
-RwRaster * RWAPI RwRasterSubRaster(RwRaster * subRaster, RwRaster * raster, RwRect * rect) { hit(191); return (RwRaster *)0; }
-RxD3D9AllInOneRenderCallBack RWAPI RxD3D9AllInOneGetRenderCallBack(RxPipelineNode *node) { hit(192); return (RxD3D9AllInOneRenderCallBack)0; }
-RxLockedPipe * RWAPI RxLockedPipeAddFragment(RxLockedPipe *pipeline, RwUInt32 *firstIndex, RxNodeDefinition *nodeDef0, ...) { hit(193); return (RxLockedPipe *)0; }
-RxPipeline * RWAPI RxLockedPipeUnlock(RxLockedPipe *pipeline) { hit(194); return (RxPipeline *)0; }
-RxNodeDefinition * RWAPI RxNodeDefinitionGetD3D9AtomicAllInOne(void) { hit(195); return (RxNodeDefinition *)0; }
-RxNodeDefinition * RWAPI RxNodeDefinitionGetD3D9WorldSectorAllInOne(void) { hit(196); return (RxNodeDefinition *)0; }
-RxPipeline * RWAPI RxPipelineCreate(void) { hit(197); return (RxPipeline *)0; }
-RxPipelineNode * RWAPI RxPipelineFindNodeByName(RxPipeline *pipeline, const RwChar *name, RxPipelineNode *start, RwInt32 *nodeIndex) { hit(198); return (RxPipelineNode *)0; }
-RxLockedPipe * RWAPI RxPipelineLock(RxPipeline *pipeline) { hit(199); return (RxLockedPipe *)0; }
-int RWAPI lib_5501c0(void) { hit(200); return (int)0; }
-int RWAPI rpAtomicResyncInterpolatedSphere(void) { hit(201); return (int)0; }
-int RWAPI rpPatchMeshDestroy(void) { hit(202); return (int)0; }
-int RWAPI rwD3D9DrawIndexedPrimitive(void) { hit(203); return (int)0; }
-int RWAPI rwD3D9EnableClippingIfNeeded(void) { hit(204); return (int)0; }
-int RWAPI rwD3D9SetPixelShader(void) { hit(205); return (int)0; }
-int RWAPI rwD3D9SetStreams(void) { hit(206); return (int)0; }
-int RWAPI rwD3D9SetVertexShader(void) { hit(207); return (int)0; }
-int RWAPI rwD3D9SetVertexShaderConstant(void) { hit(208); return (int)0; }
-int RWAPI rwObjectHasFrameSetFrame(void) { hit(209); return (int)0; }
-int RWAPI rwPluginRegistryAddPluginStream(void) { hit(210); return (int)0; }
-int RWAPI rwSListGetBegin(void) { hit(211); return (int)0; }
-int RWAPI rwSListGetNumEntries(void) { hit(212); return (int)0; }
-int RWAPI rxD3D9SkinVertexShaderSetLightingCallBack(void) { hit(213); return (int)0; }
-int RWAPI rxD3D9VertexShaderDefaultEndCallBack(void) { hit(214); return (int)0; }
-int RWAPI rxPipelineDestroy(void) { hit(215); return (int)0; }
-int RWAPI thunk_FUN_004fc3cd(void) { hit(216); return (int)0; }
-int RWAPI thunk_FUN_004fc616(void) { hit(217); return (int)0; }
+RwBBox * RWAPI RwBBoxAddPoint(RwBBox *boundBox, const RwV3d *vertex) { hit(153); return (RwBBox *)0; }
+RwBBox * RWAPI RwBBoxCalculate(RwBBox *boundBox, const RwV3d *verts, RwInt32 numVerts) { hit(154); return (RwBBox *)0; }
+RwBool RWAPI RwBBoxContainsPoint(const RwBBox *boundBox, const RwV3d *vertex) { hit(155); return (RwBool)0; }
+RwBBox * RWAPI RwBBoxInitialize(RwBBox *boundBox, const RwV3d *vertex) { hit(156); return (RwBBox *)0; }
+RwCamera * RWAPI RwCameraBeginUpdate(RwCamera * camera) { hit(157); return (RwCamera *)0; }
+const RwCamera * RWAPI RwCameraCalcPixelRay(const RwCamera *camera, RwLine *line, const RwV2d *pixel) { hit(158); return (const RwCamera *)0; }
+RwCamera * RWAPI RwCameraClear(RwCamera * camera, RwRGBA * colour, RwInt32 clearMode) { hit(159); return (RwCamera *)0; }
+RwCamera * RWAPI RwCameraClone(RwCamera * camera) { hit(160); return (RwCamera *)0; }
+RwCamera * RWAPI RwCameraCreate(void) { hit(161); return (RwCamera *)0; }
+RwBool RWAPI RwCameraDestroy(RwCamera * camera) { hit(162); return (RwBool)0; }
+RwCamera * RWAPI RwCameraEndUpdate(RwCamera * camera) { hit(163); return (RwCamera *)0; }
+RwFrustumTestResult RWAPI RwCameraFrustumTestSphere(const RwCamera * camera, const RwSphere * sphere) { hit(164); return (RwFrustumTestResult)0; }
+RwCamera * RWAPI RwCameraSetFarClipPlane(RwCamera *camera, RwReal farClip) { hit(165); return (RwCamera *)0; }
+RwCamera * RWAPI RwCameraSetNearClipPlane(RwCamera *camera, RwReal nearClip) { hit(166); return (RwCamera *)0; }
+RwCamera * RWAPI RwCameraSetProjection(RwCamera *camera, RwCameraProjection projection) { hit(167); return (RwCamera *)0; }
+RwCamera * RWAPI RwCameraSetViewWindow(RwCamera *camera, const RwV2d *viewWindow) { hit(168); return (RwCamera *)0; }
+RwCamera * RWAPI RwCameraShowRaster(RwCamera * camera, void *pDev, RwUInt32 flags) { hit(169); return (RwCamera *)0; }
+RwFrame * RWAPI RwFrameOrthoNormalize(RwFrame * frame) { hit(170); return (RwFrame *)0; }
+RwBool RWAPI RwIm3DEnd(void) { hit(171); return (RwBool)0; }
+RwBool RWAPI RwIm3DRenderIndexedPrimitive(RwPrimitiveType primType, RwImVertexIndex *indices, RwInt32 numIndices) { hit(172); return (RwBool)0; }
+RwBool RWAPI RwIm3DRenderLine(RwInt32 vert1, RwInt32 vert2) { hit(173); return (RwBool)0; }
+RwBool RWAPI RwIm3DRenderPrimitive(RwPrimitiveType primType) { hit(174); return (RwBool)0; }
+void * RWAPI RwIm3DTransform(RwIm3DVertex *pVerts, RwUInt32 numVerts, RwMatrix *ltm, RwUInt32 flags) { hit(175); return (void *)0; }
+RwImage * RWAPI RwImageAllocatePixels(RwImage * image) { hit(176); return (RwImage *)0; }
+RwImage * RWAPI RwImageCreate(RwInt32 width, RwInt32 height, RwInt32 depth) { hit(177); return (RwImage *)0; }
+RwBool RWAPI RwImageDestroy(RwImage * image) { hit(178); return (RwBool)0; }
+RwBool RWAPI RwImageRegisterImageFormat(const RwChar * extension, RwImageCallBackRead imageRead, RwImageCallBackWrite imageWrite) { hit(179); return (RwBool)0; }
+RwImage * RWAPI RwImageSetFromRaster(RwImage *image, RwRaster *raster) { hit(180); return (RwImage *)0; }
+const RwChar * RWAPI RwImageSetPath(const RwChar * path) { hit(181); return (const RwChar *)0; }
+RwImage * RWAPI RwImageWrite(RwImage * image, const RwChar * imageName) { hit(182); return (RwImage *)0; }
+RwMatrix * RWAPI RwMatrixCreate(void) { hit(183); return (RwMatrix *)0; }
+RwBool RWAPI RwMatrixDestroy(RwMatrix * mpMat) { hit(184); return (RwBool)0; }
+RwMatrix * RWAPI RwMatrixStreamRead(RwStream * stream, RwMatrix * matrix) { hit(185); return (RwMatrix *)0; }
+RwMemoryFunctions * RWAPI RwOsGetMemoryInterface(void) { hit(186); return (RwMemoryFunctions *)0; }
+RwRaster * RWAPI RwRasterSubRaster(RwRaster * subRaster, RwRaster * raster, RwRect * rect) { hit(187); return (RwRaster *)0; }
+RxD3D9AllInOneRenderCallBack RWAPI RxD3D9AllInOneGetRenderCallBack(RxPipelineNode *node) { hit(188); return (RxD3D9AllInOneRenderCallBack)0; }
+RxLockedPipe * RWAPI RxLockedPipeAddFragment(RxLockedPipe *pipeline, RwUInt32 *firstIndex, RxNodeDefinition *nodeDef0, ...) { hit(189); return (RxLockedPipe *)0; }
+RxPipeline * RWAPI RxLockedPipeUnlock(RxLockedPipe *pipeline) { hit(190); return (RxPipeline *)0; }
+RxNodeDefinition * RWAPI RxNodeDefinitionGetD3D9AtomicAllInOne(void) { hit(191); return (RxNodeDefinition *)0; }
+RxNodeDefinition * RWAPI RxNodeDefinitionGetD3D9WorldSectorAllInOne(void) { hit(192); return (RxNodeDefinition *)0; }
+RxPipeline * RWAPI RxPipelineCreate(void) { hit(193); return (RxPipeline *)0; }
+RxPipelineNode * RWAPI RxPipelineFindNodeByName(RxPipeline *pipeline, const RwChar *name, RxPipelineNode *start, RwInt32 *nodeIndex) { hit(194); return (RxPipelineNode *)0; }
+RxLockedPipe * RWAPI RxPipelineLock(RxPipeline *pipeline) { hit(195); return (RxLockedPipe *)0; }
+int RWAPI lib_5501c0(void) { hit(196); return (int)0; }
+int RWAPI rpAtomicResyncInterpolatedSphere(void) { hit(197); return (int)0; }
+int RWAPI rpPatchMeshDestroy(void) { hit(198); return (int)0; }
+int RWAPI rwD3D9DrawIndexedPrimitive(void) { hit(199); return (int)0; }
+int RWAPI rwD3D9EnableClippingIfNeeded(void) { hit(200); return (int)0; }
+int RWAPI rwD3D9SetPixelShader(void) { hit(201); return (int)0; }
+int RWAPI rwD3D9SetStreams(void) { hit(202); return (int)0; }
+int RWAPI rwD3D9SetVertexShader(void) { hit(203); return (int)0; }
+int RWAPI rwD3D9SetVertexShaderConstant(void) { hit(204); return (int)0; }
+int RWAPI rwObjectHasFrameSetFrame(void) { hit(205); return (int)0; }
+int RWAPI rwPluginRegistryAddPluginStream(void) { hit(206); return (int)0; }
+int RWAPI rwSListGetBegin(void) { hit(207); return (int)0; }
+int RWAPI rwSListGetNumEntries(void) { hit(208); return (int)0; }
+int RWAPI rxD3D9SkinVertexShaderSetLightingCallBack(void) { hit(209); return (int)0; }
+int RWAPI rxD3D9VertexShaderDefaultEndCallBack(void) { hit(210); return (int)0; }
+int RWAPI rxPipelineDestroy(void) { hit(211); return (int)0; }
+int RWAPI thunk_FUN_004fc3cd(void) { hit(212); return (int)0; }
+int RWAPI thunk_FUN_004fc616(void) { hit(213); return (int)0; }
 }
