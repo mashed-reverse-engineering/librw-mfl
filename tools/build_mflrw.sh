@@ -9,7 +9,7 @@ CXX=${CXX:-i686-w64-mingw32-g++}
 if [ -n "$GEN" ]; then
 	python3 "$R/capi/gen_facade.py" "$GEN/output/rwsurf/api_used.csv" "$GEN/../references/sdk/rwsdk-3.7.0.2-full/Library_D3D9_Hdr_Files" "$GEN/output/librw_facade_coverage.csv"
 fi
-F="-std=c++11 -O2 -mfpmath=387 -ffp-contract=off -fno-exceptions -fno-rtti -w -DLODEPNG_NO_COMPILE_CPP -I$R -I$R/src"
+F="-std=c++11 -O2 -mfpmath=387 -ffp-contract=off -fno-exceptions -fno-rtti -w -DLODEPNG_NO_COMPILE_CPP -DLAYOUT_STRICT -I$R -I$R/src"
 for P in d3d9 null; do
 	D=$O/$P; mkdir -p "$D"
 	PF="$F"; [ $P = d3d9 ] && PF="$F -DRW_D3D9"
