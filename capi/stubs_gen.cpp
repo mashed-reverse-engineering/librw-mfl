@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include "rwmfl.h"
 
-static unsigned hits[214]; static const char *const names[214] = {
+static unsigned hits[212]; static const char *const names[212] = {
 	"FUN_004da0e0",
 	"FUN_004dbca0",
 	"FUN_004dbda0",
@@ -186,8 +186,6 @@ static unsigned hits[214]; static const char *const names[214] = {
 	"RwImageSetFromRaster",
 	"RwImageSetPath",
 	"RwImageWrite",
-	"RwMatrixCreate",
-	"RwMatrixDestroy",
 	"RwMatrixStreamRead",
 	"RwOsGetMemoryInterface",
 	"RwRasterSubRaster",
@@ -220,8 +218,8 @@ static unsigned hits[214]; static const char *const names[214] = {
 };
 static void hit(int i){ if (++hits[i] == 1) fprintf(stderr, "[mflrw] stub called: %s\n", names[i]); }
 extern "C" {
-int RWAPI rwmfl_stub_count(void){ return 214; }
-int RWAPI rwmfl_stub_info(int i, const char **n, unsigned *h){ if (i < 0 || i >= 214) return 0; if (n) *n = names[i]; if (h) *h = hits[i]; return 1; }
+int RWAPI rwmfl_stub_count(void){ return 212; }
+int RWAPI rwmfl_stub_info(int i, const char **n, unsigned *h){ if (i < 0 || i >= 212) return 0; if (n) *n = names[i]; if (h) *h = hits[i]; return 1; }
 int RWAPI FUN_004da0e0(void) { hit(0); return (int)0; }
 int RWAPI FUN_004dbca0(void) { hit(1); return (int)0; }
 int RWAPI FUN_004dbda0(int p0, int p1, int p2, int p3, int p4, int p5, int p6, int p7, int p8, int p9, int p10, int p11, int p12) { hit(2); return (int)0; }
@@ -405,35 +403,33 @@ RwBool RWAPI RwImageRegisterImageFormat(const RwChar * extension, RwImageCallBac
 RwImage * RWAPI RwImageSetFromRaster(RwImage *image, RwRaster *raster) { hit(180); return (RwImage *)0; }
 const RwChar * RWAPI RwImageSetPath(const RwChar * path) { hit(181); return (const RwChar *)0; }
 RwImage * RWAPI RwImageWrite(RwImage * image, const RwChar * imageName) { hit(182); return (RwImage *)0; }
-RwMatrix * RWAPI RwMatrixCreate(void) { hit(183); return (RwMatrix *)0; }
-RwBool RWAPI RwMatrixDestroy(RwMatrix * mpMat) { hit(184); return (RwBool)0; }
-RwMatrix * RWAPI RwMatrixStreamRead(RwStream * stream, RwMatrix * matrix) { hit(185); return (RwMatrix *)0; }
-RwMemoryFunctions * RWAPI RwOsGetMemoryInterface(void) { hit(186); return (RwMemoryFunctions *)0; }
-RwRaster * RWAPI RwRasterSubRaster(RwRaster * subRaster, RwRaster * raster, RwRect * rect) { hit(187); return (RwRaster *)0; }
-RxD3D9AllInOneRenderCallBack RWAPI RxD3D9AllInOneGetRenderCallBack(RxPipelineNode *node) { hit(188); return (RxD3D9AllInOneRenderCallBack)0; }
-RxLockedPipe * RWAPI RxLockedPipeAddFragment(RxLockedPipe *pipeline, RwUInt32 *firstIndex, RxNodeDefinition *nodeDef0, ...) { hit(189); return (RxLockedPipe *)0; }
-RxPipeline * RWAPI RxLockedPipeUnlock(RxLockedPipe *pipeline) { hit(190); return (RxPipeline *)0; }
-RxNodeDefinition * RWAPI RxNodeDefinitionGetD3D9AtomicAllInOne(void) { hit(191); return (RxNodeDefinition *)0; }
-RxNodeDefinition * RWAPI RxNodeDefinitionGetD3D9WorldSectorAllInOne(void) { hit(192); return (RxNodeDefinition *)0; }
-RxPipeline * RWAPI RxPipelineCreate(void) { hit(193); return (RxPipeline *)0; }
-RxPipelineNode * RWAPI RxPipelineFindNodeByName(RxPipeline *pipeline, const RwChar *name, RxPipelineNode *start, RwInt32 *nodeIndex) { hit(194); return (RxPipelineNode *)0; }
-RxLockedPipe * RWAPI RxPipelineLock(RxPipeline *pipeline) { hit(195); return (RxLockedPipe *)0; }
-int RWAPI lib_5501c0(void) { hit(196); return (int)0; }
-int RWAPI rpAtomicResyncInterpolatedSphere(void) { hit(197); return (int)0; }
-int RWAPI rpPatchMeshDestroy(void) { hit(198); return (int)0; }
-int RWAPI rwD3D9DrawIndexedPrimitive(void) { hit(199); return (int)0; }
-int RWAPI rwD3D9EnableClippingIfNeeded(void) { hit(200); return (int)0; }
-int RWAPI rwD3D9SetPixelShader(void) { hit(201); return (int)0; }
-int RWAPI rwD3D9SetStreams(void) { hit(202); return (int)0; }
-int RWAPI rwD3D9SetVertexShader(void) { hit(203); return (int)0; }
-int RWAPI rwD3D9SetVertexShaderConstant(void) { hit(204); return (int)0; }
-int RWAPI rwObjectHasFrameSetFrame(void) { hit(205); return (int)0; }
-int RWAPI rwPluginRegistryAddPluginStream(void) { hit(206); return (int)0; }
-int RWAPI rwSListGetBegin(void) { hit(207); return (int)0; }
-int RWAPI rwSListGetNumEntries(void) { hit(208); return (int)0; }
-int RWAPI rxD3D9SkinVertexShaderSetLightingCallBack(void) { hit(209); return (int)0; }
-int RWAPI rxD3D9VertexShaderDefaultEndCallBack(void) { hit(210); return (int)0; }
-int RWAPI rxPipelineDestroy(void) { hit(211); return (int)0; }
-int RWAPI thunk_FUN_004fc3cd(void) { hit(212); return (int)0; }
-int RWAPI thunk_FUN_004fc616(void) { hit(213); return (int)0; }
+RwMatrix * RWAPI RwMatrixStreamRead(RwStream * stream, RwMatrix * matrix) { hit(183); return (RwMatrix *)0; }
+RwMemoryFunctions * RWAPI RwOsGetMemoryInterface(void) { hit(184); return (RwMemoryFunctions *)0; }
+RwRaster * RWAPI RwRasterSubRaster(RwRaster * subRaster, RwRaster * raster, RwRect * rect) { hit(185); return (RwRaster *)0; }
+RxD3D9AllInOneRenderCallBack RWAPI RxD3D9AllInOneGetRenderCallBack(RxPipelineNode *node) { hit(186); return (RxD3D9AllInOneRenderCallBack)0; }
+RxLockedPipe * RWAPI RxLockedPipeAddFragment(RxLockedPipe *pipeline, RwUInt32 *firstIndex, RxNodeDefinition *nodeDef0, ...) { hit(187); return (RxLockedPipe *)0; }
+RxPipeline * RWAPI RxLockedPipeUnlock(RxLockedPipe *pipeline) { hit(188); return (RxPipeline *)0; }
+RxNodeDefinition * RWAPI RxNodeDefinitionGetD3D9AtomicAllInOne(void) { hit(189); return (RxNodeDefinition *)0; }
+RxNodeDefinition * RWAPI RxNodeDefinitionGetD3D9WorldSectorAllInOne(void) { hit(190); return (RxNodeDefinition *)0; }
+RxPipeline * RWAPI RxPipelineCreate(void) { hit(191); return (RxPipeline *)0; }
+RxPipelineNode * RWAPI RxPipelineFindNodeByName(RxPipeline *pipeline, const RwChar *name, RxPipelineNode *start, RwInt32 *nodeIndex) { hit(192); return (RxPipelineNode *)0; }
+RxLockedPipe * RWAPI RxPipelineLock(RxPipeline *pipeline) { hit(193); return (RxLockedPipe *)0; }
+int RWAPI lib_5501c0(void) { hit(194); return (int)0; }
+int RWAPI rpAtomicResyncInterpolatedSphere(void) { hit(195); return (int)0; }
+int RWAPI rpPatchMeshDestroy(void) { hit(196); return (int)0; }
+int RWAPI rwD3D9DrawIndexedPrimitive(void) { hit(197); return (int)0; }
+int RWAPI rwD3D9EnableClippingIfNeeded(void) { hit(198); return (int)0; }
+int RWAPI rwD3D9SetPixelShader(void) { hit(199); return (int)0; }
+int RWAPI rwD3D9SetStreams(void) { hit(200); return (int)0; }
+int RWAPI rwD3D9SetVertexShader(void) { hit(201); return (int)0; }
+int RWAPI rwD3D9SetVertexShaderConstant(void) { hit(202); return (int)0; }
+int RWAPI rwObjectHasFrameSetFrame(void) { hit(203); return (int)0; }
+int RWAPI rwPluginRegistryAddPluginStream(void) { hit(204); return (int)0; }
+int RWAPI rwSListGetBegin(void) { hit(205); return (int)0; }
+int RWAPI rwSListGetNumEntries(void) { hit(206); return (int)0; }
+int RWAPI rxD3D9SkinVertexShaderSetLightingCallBack(void) { hit(207); return (int)0; }
+int RWAPI rxD3D9VertexShaderDefaultEndCallBack(void) { hit(208); return (int)0; }
+int RWAPI rxPipelineDestroy(void) { hit(209); return (int)0; }
+int RWAPI thunk_FUN_004fc3cd(void) { hit(210); return (int)0; }
+int RWAPI thunk_FUN_004fc616(void) { hit(211); return (int)0; }
 }

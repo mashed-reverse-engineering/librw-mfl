@@ -196,7 +196,9 @@ EXPORTS
     RtFSManagerRegister
     RtFSManagerSetDefaultFileSystem
     RtFSManagerSyncAllFiles
+    RtIntersectionBBoxTriangle
     RtIntersectionLineTriangle
+    RtIntersectionSphereTriangle
     RtLineSphereIntersectionTest
     RtLtMapMaterialGetAreaLightColor
     RtPITexDictionaryStreamRead

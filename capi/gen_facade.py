@@ -90,7 +90,10 @@ for n, rt, ar, mod, note in [('_rwSqrt', 'RwReal', 'RwReal x', 'core', 'alias of
                              ('_rwMatrixIdentityError', 'RwReal', 'const RwMatrix *matrix', 'core', '0x4d3a30'),
                              ('RwMatrixOptimize', 'RwMatrix *', 'RwMatrix *matrix, const RwMatrixTolerance *tolerance', 'core', '0x4d3c00'),
                              ('RwMatrixRotateOneMinusCosineSine', 'RwMatrix *', 'RwMatrix *matrix, const RwV3d *unitAxis, RwReal oneMinusCosine, RwReal sine, RwOpCombineType combineOp', 'core', '0x4d4120'),
-                             ('RtQuatTransformVectors', 'RwV3d *', 'RwV3d *vectorsOut, const RwV3d *vectorsIn, const RwInt32 numPoints, const RtQuat *quat', 'toolkit', '0x557340')]:
+                             ('RtQuatTransformVectors', 'RwV3d *', 'RwV3d *vectorsOut, const RwV3d *vectorsIn, const RwInt32 numPoints, const RtQuat *quat', 'toolkit', '0x557340'),
+                             # S4 g2 (capi/g2.cpp): the triangle tests of the collision code (RpCollision callbacks 0x54a000..0x54d600)
+                             ('RtIntersectionSphereTriangle', 'RwBool', 'const RwSphere *sphere, const RwV3d *v0, const RwV3d *v1, const RwV3d *v2, RwV3d *normal, RwReal *distance', 'toolkit', '0x557a80'),
+                             ('RtIntersectionBBoxTriangle', 'RwBool', 'const RwBBox *bbox, const RwV3d *v0, const RwV3d *v1, const RwV3d *v2', 'toolkit', '0x558220')]:
     if n not in protos: protos[n] = (rt, ar); src[n] = 'extra'; extra.append((n, mod, note))
 
 idents = set()
