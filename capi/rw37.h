@@ -72,5 +72,19 @@ struct RwTexDictionary37 {
 static_assert(offsetof(RwTexDictionary37, texturesInDict) == 8, "RwTexDictionary37");
 
 // RwGlobals (RwEngineInstance) offsets the bridge uses: stdFunc[] at 0x48, memory functions 0x108..
-enum { RW37_STD_CAMERABEGIN = 0x4c, RW37_STD_RASTERCREATE = 0x58, RW37_STD_RASTERDESTROY = 0x5c, RW37_STD_CAMERAEND = 0x70, RW37_STD_RASTERLOCK = 0x84,
-       RW37_FREELISTALLOC = 0x118, RW37_FREELISTFREE = 0x11c };
+enum { RW37_STD_CAMERABEGIN = 0x4c, RW37_STD_RASTERCREATE = 0x58, RW37_STD_RASTERDESTROY = 0x5c, RW37_STD_CAMERAEND = 0x70, RW37_STD_RASTERSUBRASTER = 0x78,
+       RW37_STD_RASTERLOCK = 0x84, RW37_STD_RASTERUNLOCK = 0x88, RW37_STD_RASTERLOCKPALETTE = 0xa4, RW37_STD_RASTERUNLOCKPALETTE = 0xa8,
+       RW37_STD_RASTERGETMIPLEVELS = 0xb8, RW37_STRNCPY = 0xd0, RW37_STRLEN = 0xf4, RW37_FREELISTALLOC = 0x118, RW37_FREELISTFREE = 0x11c };
+// RwPluginRegistry (sizeOfStruct at 0, first / last entry 0x10 / 0x14) and its entries (offset 0, size 4, ctor 0x20, dtor 0x24, next 0x30, prev 0x34):
+// rwPluginRegistryInitObject 0x4e9ce0 / DeInitObject 0x4e9d40
+struct RwPluginRegEntry37 {
+	int32_t offset, size;		// 0x00 0x04
+	uint8_t pad08[0x18];
+	void *(__cdecl *ctor)(void *object, int32_t offset, int32_t size);	// 0x20
+	void *(__cdecl *dtor)(void *object, int32_t offset, int32_t size);	// 0x24
+	uint8_t pad28[8];
+	RwPluginRegEntry37 *next, *prev;	// 0x30 0x34
+};
+static_assert(offsetof(RwPluginRegEntry37, ctor) == 0x20 && offsetof(RwPluginRegEntry37, next) == 0x30, "RwPluginRegEntry37");
+struct RwPluginRegistry37 { int32_t sizeOfStruct; uint8_t pad04[0xc]; RwPluginRegEntry37 *first, *last; };
+static_assert(offsetof(RwPluginRegistry37, first) == 0x10, "RwPluginRegistry37");

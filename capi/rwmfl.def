@@ -387,3 +387,24 @@ EXPORTS
     rwmfl_get_fpucw
     rwmfl_layout_check
     rwmfl_engine
+    mflrw_exe_bind
+    rw37_RwRasterCreate
+    rw37_RwRasterDestroy
+    rw37_RwRasterSubRaster
+    rw37_RwRasterGetNumLevels
+    rw37_RwRasterLock
+    rw37_RwRasterUnlock
+    rw37_RwRasterLockPalette
+    rw37_RwRasterUnlockPalette
+    rw37_RwRasterGetCurrentContext
+    rw37_RwRasterGetOffset
+    rw37_RwTextureGetAutoMipmapping
+    rw37_RwTexDictionaryCreate
+    rw37_RwTexDictionaryDestroy
+    rw37_RwTextureCreate
+    rw37_RwTextureDestroy
+    rw37_destroyTexture
+    rw37_RwTextureSetName
+    rw37_RwTextureSetMaskName
+    rw37_RwTexDictionaryAddTexture
+    rw37_RwTexDictionaryFindNamedTexture
