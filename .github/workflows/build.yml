@@ -62,6 +62,7 @@ jobs:
             -DLIBRW_PLATFORM=${{ matrix.case.platform }} \
             -DLIBRW_GL3_GFXLIB=${{ matrix.case.gl3_gfxlib }} \
             -DCMAKE_TOOLCHAIN_FILE=${{ matrix.case.cmake-toolchain-file }} \
+            -DLIBRW_TOOLS=${{ (matrix.case.platform == 'NULL' && 'ON') || 'OFF' }} \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_POLICY_DEFAULT_CMP0074=NEW
       - name: 'Build (CMake)'
