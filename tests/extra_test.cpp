@@ -49,7 +49,7 @@ static void testSectorApi(const char *bsp)
 	CHECK(w->getSectorRenderCallBack() == myRender, "set cb");
 	rendered = 0;
 	WorldSector *s = WorldSector::create();
-	s->world = w;
+	s->ext()->world = w;
 	CHECK(s->getWorld() == w, "sector world");
 	CHECK(PLUGINOFFSET(SecPlg, s, secOff)->ctor == 0x1234, "sector plugin ctor");
 	s->render();

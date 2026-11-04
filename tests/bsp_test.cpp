@@ -111,7 +111,7 @@ testFile(const char *path, Stats &st, World **out)
 			if(m > st.maxMat) st.maxMat = m;
 			if(st.err.size() > 20) return false;
 		}
-		if(sec->collision) st.coll++;
+		if(sec->ext()->collision) st.coll++;
 		// render path data (no GPU): geometry must build
 		Geometry *g = sec->getGeometry();
 		CHECK(g != nil, "sector %d geometry", s);

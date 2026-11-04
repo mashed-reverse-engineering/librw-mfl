@@ -55,7 +55,7 @@ dumpWorld(World *w)
 {
 	for(int i = 0; i < w->numSectors; i++){
 		WorldSector *s = w->sectors[i];
-		CollisionTree *t = s->collTree;
+		CollisionTree *t = s->ext()->collTree;
 		if(t == nil){ printf("s %d ntri %d notree\n", i, s->numTriangles); continue; }
 		printf("s %d ntri %d flags %x inf %08x %08x %08x sup %08x %08x %08x nent %u nsplit %u\n", i, s->numTriangles, t->flags,
 			fbits(t->bbox.inf.x), fbits(t->bbox.inf.y), fbits(t->bbox.inf.z),
@@ -134,7 +134,7 @@ static CollNode rootNode(const CollisionTree *t)
 static bool	// false = callback stopped
 origLineSector(OCtx &c, WorldSector *s, const float *L, float t0in, float t1in)
 {
-	const CollisionTree *t = s->collTree;
+	const CollisionTree *t = s->ext()->collTree;
 	if(t == nil) return true;	// sector without collision data: nothing
 	CollNode root = rootNode(t);
 	struct E { const CollNode *n; float t0, t1; };
@@ -466,7 +466,7 @@ origWorldBox(OCtx &c, const BBox &box)
 	float Q[12] = { box.sup.x, box.sup.y, box.sup.z, box.inf.x, box.inf.y, box.inf.z,
 	                box.sup.x, box.sup.y, box.sup.z, box.inf.x, box.inf.y, box.inf.z };
 	planeBoxWalk(c.w, Q, [&](WorldSector *s){
-		const CollisionTree *t = s->collTree;
+		const CollisionTree *t = s->ext()->collTree;
 		if(t == nil || disjoint(t, Q)) return;
 		kdBoxWalk(t, Q, initFlags(t, Q+6), [&](uint32 b, uint32 e, uint32 f){
 			for(uint32 k = b; k < e; k++){
@@ -487,7 +487,7 @@ origWorldSphere(OCtx &c, const Sphere &sp)
 	for(int a = 0; a < 3; a++){ Q[a] = r + cn[a]; Q[3+a] = cn[a] - r; Q[6+a] = cn[a] + ri; Q[9+a] = cn[a] - ri; }
 	float S[4] = { cn[0], cn[1], cn[2], r };
 	planeBoxWalk(c.w, Q, [&](WorldSector *s){
-		const CollisionTree *t = s->collTree;
+		const CollisionTree *t = s->ext()->collTree;
 		if(t == nil) return;
 		const float *ts = &t->bbox.sup.x, *ti = &t->bbox.inf.x;
 		float dd[3];
@@ -607,7 +607,7 @@ compare(int ty, World *w, std::map<WorldSector*, int> &sidx, Hits &F, Hits &O, c
 	for(auto &kv : mf) if(!mo.count(kv.first)){
 		seteq = false; S.onlyF++;
 		WorldSector *s = w->sectors[kv.first.first];
-		if(s->collTree == nil) S.onlyFnotree++;
+		if(s->ext()->collTree == nil) S.onlyFnotree++;
 		else if(ty == 0 && isBackface(s, kv.first.second, is.t.line)) S.onlyFback++;
 		else { S.onlyFother++;
 			if(samples[ty].size() < 6){ char b[200]; snprintf(b, sizeof b, "onlyFork s%d t%d d=%g", kv.first.first, kv.first.second, kv.second->dist); samples[ty].push_back(b); } }

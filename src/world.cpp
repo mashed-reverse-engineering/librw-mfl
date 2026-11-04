@@ -20,7 +20,7 @@ namespace rw {
 int32 World::numAllocated = 0;
 
 PluginList World::s_plglist(sizeof(World));
-PluginList WorldSector::s_plglist(sizeof(WorldSector));
+PluginList WorldSector::s_plglist(sizeof(WorldSector) + sizeof(WorldSectorExt));
 
 static void defaultSectorRender(WorldSector *sector){ sector->renderDefault(); }
 
@@ -33,6 +33,7 @@ World::create(BBox *bbox)
 		return nil;
 	}
 	numAllocated++;
+	memset(world, 0, sizeof(World));	// RW 3.7 slots librw does not use stay 0
 	world->object.init(World::ID, 0);
 	world->localLights.init();
 	world->globalLights.init();
@@ -63,13 +64,14 @@ destroyNode(BspNode *n)
 		return;
 	if(n->isLeaf){
 		WorldSector *s = (WorldSector*)n;
-		if(s->atomic){
-			Frame *f = s->atomic->getFrame();
-			s->atomic->destroy();	// also drops the geometry
+		WorldSectorExt *x = s->ext();
+		if(x->atomic){
+			Frame *f = x->atomic->getFrame();
+			x->atomic->destroy();	// also drops the geometry
 			if(f)
 				f->destroy();
-		}else if(s->geometry)
-			s->geometry->destroy();
+		}else if(x->geometry)
+			x->geometry->destroy();
 		// triangles block also holds colors and texcoords only for Geometry;
 		// here every array is separate
 		rwFree(s->vertices);
@@ -78,9 +80,9 @@ destroyNode(BspNode *n)
 		for(int32 i = 0; i < 8; i++)
 			rwFree(s->texCoords[i]);
 		rwFree(s->triangles);
-		rwFree(s->collision);
-		if(s->collTree)
-			s->collTree->destroy();
+		rwFree(x->collision);
+		if(x->collTree)
+			x->collTree->destroy();
 		WorldSector::s_plglist.destruct(s);
 	}else{
 		PlaneSector *p = (PlaneSector*)n;
@@ -336,6 +338,7 @@ static bool
 readSectorExtension(Stream *stream, WorldSector *sec, int32 length)
 {
 	ChunkHeaderInfo h;
+	WorldSectorExt *x = sec->ext();
 	while(length >= 12){
 		if(!readChunkHeaderInfo(stream, &h))
 			return false;
@@ -343,14 +346,14 @@ readSectorExtension(Stream *stream, WorldSector *sec, int32 length)
 		if((int32)h.length > length)
 			return false;
 		if(h.type == 0x11D && h.length){
-			sec->collision = rwNewT(uint8, h.length, MEMDUR_EVENT | ID_WORLD);
-			sec->collisionSize = h.length;
-			stream->read8(sec->collision, h.length);
-			sec->collTree = CollisionTree::fromBlob(sec->collision, h.length, sec->numTriangles);
-			if(sec->collTree == nil)
+			x->collision = rwNewT(uint8, h.length, MEMDUR_EVENT | ID_WORLD);
+			x->collisionSize = h.length;
+			stream->read8(x->collision, h.length);
+			x->collTree = CollisionTree::fromBlob(x->collision, h.length, sec->numTriangles);
+			if(x->collTree == nil)
 				return false;
 		}else if(h.type == 0x120 && h.length >= 4){
-			sec->matFX = stream->readI32();
+			x->matFX = stream->readI32();
 			stream->seek(h.length-4);
 		}else if(WorldSector::s_plglist.streamReadChunk(stream, h.type, h.length, sec)){
 			// registered plugin consumed its chunk; resync in case it read less
@@ -381,37 +384,31 @@ readAtomicSector(Stream *stream, BspReadCtx *ctx, BspNode **slot, uint32 end)
 		return false;
 	*slot = (BspNode*)sec;
 	world->sectors[ctx->sectorsRead++] = sec;
-	sec->world = world;
+	sec->ext()->world = world;
 
 	int32 hdr[11];
 	stream->read32(hdr, SECTORHDR);
-	sec->matIdBase = hdr[0];
-	sec->numTriangles = hdr[1];
-	sec->numVertices = hdr[2];
 	float32 box[6];
 	memcpy(box, &hdr[3], sizeof(box));
 	sec->bbox.inf.set(box[0], box[1], box[2]);
 	sec->bbox.sup.set(box[3], box[4], box[5]);
-	sec->unusedHdr = hdr[9];	// hdr[10] is unused too
+	// hdr[9], hdr[10] unused (garbage in the files, never test them)
 
 	uint32 fmt = world->format;
 	if(fmt & Geometry::NATIVE){
 		RWERROR((ERR_GENERAL, "native (platform specific) world sectors are not supported"));
 		return false;
 	}
-	if(sec->numTriangles < 0 || sec->numVertices < 0 || sec->numTriangles > 0xFFFF*4 || sec->numVertices > 0xFFFF){
+	// RW 3.7 keeps all three as 16 bit
+	if((uint32)hdr[0] > 0xFFFF || (uint32)hdr[1] > 0xFFFF || (uint32)hdr[2] > 0xFFFF){
 		RWERROR((ERR_GENERAL, "bad sector counts"));
 		return false;
 	}
+	sec->matIdBase = hdr[0];
+	sec->numTriangles = hdr[1];
+	sec->numVertices = hdr[2];
 	int32 nv = sec->numVertices, nt = sec->numTriangles;
-	int32 nsets = (fmt & 0xFF0000) >> 16;
-	if(nsets == 0)
-		nsets = (fmt & Geometry::TEXTURED2) ? 2 : (fmt & Geometry::TEXTURED) ? 1 : 0;
-	if(nsets > 8){
-		RWERROR((ERR_GENERAL, "too many texcoord sets"));
-		return false;
-	}
-	sec->numTexCoordSets = nsets;
+	int32 nsets = world->numTexCoordSets;
 	uint32 expect = SECTORHDR + 12*nv + ((fmt & Geometry::NORMALS) ? 4*nv : 0) +
 	                ((fmt & Geometry::PRELIT) ? 4*nv : 0) + 8*nv*nsets + 8*nt;
 	if(expect != length){
@@ -588,6 +585,13 @@ World::streamRead(Stream *stream)
 	world->numSectors = b[7];
 	world->colSectorSize = b[8];
 	world->format = b[9];
+	world->numTexCoordSets = (world->format & 0xFF0000) >> 16;
+	if(world->numTexCoordSets == 0)
+		world->numTexCoordSets = (world->format & Geometry::TEXTURED2) ? 2 : (world->format & Geometry::TEXTURED) ? 1 : 0;
+	if(world->numTexCoordSets > 8){
+		RWERROR((ERR_GENERAL, "too many texcoord sets"));
+		goto fail;
+	}
 	// the world struct stores the box as sup then inf (observed: first triple is the larger)
 	world->bbox.sup.set(f[10], f[11], f[12]);
 	world->bbox.inf.set(f[13], f[14], f[15]);
@@ -678,11 +682,12 @@ World::instance(void)
 Geometry*
 WorldSector::getGeometry(void)
 {
-	if(this->geometry)
-		return this->geometry;
-	World *w = this->world;
+	WorldSectorExt *x = this->ext();
+	if(x->geometry)
+		return x->geometry;
+	World *w = x->world;
 	uint32 flags = ((w->format & 0xFC) | Geometry::POSITIONS) & ~Geometry::TRISTRIP;
-	flags |= (uint32)this->numTexCoordSets << 16;
+	flags |= (uint32)w->numTexCoordSets << 16;
 	Geometry *g = Geometry::create(this->numVertices, this->numTriangles, flags);
 	if(g == nil)
 		return nil;
@@ -693,7 +698,7 @@ WorldSector::getGeometry(void)
 			memcpy(mt->normals, this->normals, this->numVertices*sizeof(V3d));
 		if(this->colors && g->colors)
 			memcpy(g->colors, this->colors, this->numVertices*sizeof(RGBA));
-		for(int32 i = 0; i < this->numTexCoordSets; i++)
+		for(int32 i = 0; i < w->numTexCoordSets; i++)
 			memcpy(g->texCoords[i], this->texCoords[i], this->numVertices*sizeof(TexCoords));
 	}
 	for(int32 i = 0; i < w->matList.numMaterials; i++)
@@ -704,7 +709,8 @@ WorldSector::getGeometry(void)
 	}
 	mt->boundingSphere = mt->calculateBoundingSphere();
 	g->buildMeshes();
-	this->geometry = g;
+	x->geometry = g;
+	this->mesh = g->meshHeader;
 	return g;
 }
 
@@ -716,8 +722,10 @@ WorldSector::create(void)
 		RWERROR((ERR_ALLOC, s_plglist.size));
 		return nil;
 	}
-	memset(sec, 0, sizeof(*sec));
+	memset(sec, 0, sizeof(WorldSector) + sizeof(WorldSectorExt));
 	sec->isLeaf = 1;
+	sec->collAtomics.init();
+	sec->lights.init();
 	s_plglist.construct(sec);
 	return sec;
 }
@@ -732,15 +740,16 @@ WorldSector::destroy(void)
 void
 WorldSector::enableMatFX(void)
 {
-	this->matFX = 1;
-	if(this->atomic)
-		MatFX::enableEffects(this->atomic);
+	WorldSectorExt *x = this->ext();
+	x->matFX = 1;
+	if(x->atomic)
+		MatFX::enableEffects(x->atomic);
 }
 
 void
 WorldSector::render(void)
 {
-	World *w = this->world;
+	World *w = this->ext()->world;
 	if(w && w->sectorRenderCB)
 		w->sectorRenderCB(this);
 	else
@@ -750,8 +759,9 @@ WorldSector::render(void)
 static Atomic*
 ensureAtomic(WorldSector *s)
 {
-	if(s->atomic)
-		return s->atomic;
+	WorldSectorExt *x = s->ext();
+	if(x->atomic)
+		return x->atomic;
 	Geometry *g = s->getGeometry();
 	if(g == nil)
 		return nil;
@@ -759,9 +769,9 @@ ensureAtomic(WorldSector *s)
 	a->setFrame(Frame::create());
 	a->setGeometry(g, 0);
 	g->destroy();	// atomic now owns the only reference
-	if(s->matFX)
+	if(x->matFX)
 		MatFX::enableEffects(a);
-	return s->atomic = a;
+	return x->atomic = a;
 }
 
 void

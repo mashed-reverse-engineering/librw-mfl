@@ -845,10 +845,10 @@ worldLine(World *w, const Line &line, Visit *vis)
 			lineSplit<BspNode*>(q.L, p->type >> 2, p->leftValue, p->rightValue, p->left, p->right, cur, st);
 		}
 		WorldSector *s = (WorldSector*)cur.n;
-		if(s->collTree == nil)
+		if(s->ext()->collTree == nil)
 			continue;
 		vis->sector = s; vis->verts = s->vertices; vis->tris = s->triangles;
-		if(!kdLine(s->collTree, q.L, cur.t0, cur.t1, vis))
+		if(!kdLine(s->ext()->collTree, q.L, cur.t0, cur.t1, vis))
 			return;
 	}
 }
@@ -871,10 +871,10 @@ worldBoxWalk(World *w, const float32 *Q, Visit *vis, F sector)
 				n = p->left;
 		}
 		WorldSector *s = (WorldSector*)n;
-		if(s->collTree == nil)
+		if(s->ext()->collTree == nil)
 			continue;
 		vis->sector = s; vis->verts = s->vertices; vis->tris = s->triangles;
-		if(!sector(s->collTree))
+		if(!sector(s->ext()->collTree))
 			return;
 	}
 }
@@ -919,15 +919,15 @@ collisionWorldForAllIntersections(World *world, Intersection *isec, WorldInterse
 CollisionTree*
 collisionWorldSectorQueryData(WorldSector *s)
 {
-	return s->collTree;
+	return s->ext()->collTree;
 }
 
 void
 collisionWorldSectorDestroyData(WorldSector *s)
 {
-	if(s->collTree){
-		s->collTree->destroy();
-		s->collTree = nil;
+	if(s->ext()->collTree){
+		s->ext()->collTree->destroy();
+		s->ext()->collTree = nil;
 	}
 }
 

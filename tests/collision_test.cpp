@@ -495,7 +495,7 @@ readFile(const char *path, uint32 *len)
 static void
 fuzzBlob(const WorldSector *src, Totals &T, int rounds)
 {
-	std::vector<uint8> blob(src->collision, src->collision + src->collisionSize);
+	std::vector<uint8> blob(src->ext()->collision, src->ext()->collision + src->ext()->collisionSize);
 	fflush(stderr);
 	int saved = dup(2), nul = open("/dev/null", O_WRONLY);	// the parser reports every rejected blob
 	dup2(nul, 2); close(nul);
@@ -513,8 +513,9 @@ fuzzBlob(const WorldSector *src, Totals &T, int rounds)
 		if(!t) continue;
 		T.fuzzParsed++;
 		// the mutated tree must be safe to query
-		WorldSector fake = *src;
-		fake.collTree = t;
+		struct { WorldSector s; WorldSectorExt x; } fb = { *src, *src->ext() };	// ext() lives right behind the sector
+		WorldSector &fake = fb.s;
+		fb.x.collTree = t;
 		World fw; memset(&fw, 0, sizeof fw);
 		WorldSector *arr[1] = { &fake };
 		fw.sectors = arr; fw.numSectors = 1; fw.root = (BspNode*)&fake;
@@ -539,20 +540,20 @@ testBuildAndRoundtrip(WorldSector *s, int si, const char *file, Totals &T)
 {
 	char what[160];
 	// (a) stored tree
-	if(s->collTree){
+	if(s->ext()->collTree){
 		snprintf(what, sizeof what, "%s sector %d stored", file, si);
 		TreeStats st = {0,0,0,0,0,0};
-		validateTree(s->collTree, s->vertices, s->triangles, s->numTriangles, &s->bbox, what, st);
+		validateTree(s->ext()->collTree, s->vertices, s->triangles, s->numTriangles, &s->bbox, what, st);
 		T.slop += st.slop; T.splits += st.splits; T.leaves += st.leaves; T.outOfParent += st.outOfParent;
 		T.maxDepth = std::max(T.maxDepth, st.maxDepth); T.maxLeaf = std::max(T.maxLeaf, st.maxLeaf);
 		T.sectorsWithTree++;
 		// byte-exact reserialisation except the chunk stamps
-		uint32 sz = s->collTree->blobSize();
-		CHECK(sz == s->collisionSize, "%s: blobSize %u != stored %u", what, sz, s->collisionSize);
-		if(sz == s->collisionSize){
+		uint32 sz = s->ext()->collTree->blobSize();
+		CHECK(sz == s->ext()->collisionSize, "%s: blobSize %u != stored %u", what, sz, s->ext()->collisionSize);
+		if(sz == s->ext()->collisionSize){
 			std::vector<uint8> b(sz);
-			s->collTree->toBlob(&b[0]);
-			std::vector<uint8> o(s->collision, s->collision + sz);
+			s->ext()->collTree->toBlob(&b[0]);
+			std::vector<uint8> o(s->ext()->collision, s->ext()->collision + sz);
 			for(int off : {12, 24}) for(int k = 0; k < 4; k++) b[off+k] = o[off+k] = 0;
 			bool same = memcmp(&b[0], &o[0], sz) == 0;
 			CHECK(same, "%s: toBlob differs from the stored bytes", what);
@@ -736,12 +737,12 @@ testFile(const char *path, long nQueries, bool geo, Totals &T)
 			}
 			t2.sector = i; t2.index = k;
 			tris.push_back(t2);
-			if(s->collTree) treeTris.push_back(t2);
+			if(s->ext()->collTree) treeTris.push_back(t2);
 		}
 	}
 	// 0x11D present or not must be consistent with the stored blob
 	for(int32 i = 0; i < w->numSectors; i++)
-		CHECK((w->sectors[i]->collTree != nil) == (w->sectors[i]->collisionSize != 0), "%s: tree/blob presence", path);
+		CHECK((w->sectors[i]->ext()->collTree != nil) == (w->sectors[i]->ext()->collisionSize != 0), "%s: tree/blob presence", path);
 	// QueryData / DestroyData on a copy of the pointer is covered in main (unit part); here the world queries
 	if(!tris.empty()){
 		QStats qs; memset(&qs, 0, sizeof qs);
@@ -771,13 +772,13 @@ testFile(const char *path, long nQueries, bool geo, Totals &T)
 	int fz = 0, gt = 0;
 	for(int32 i = 0; i < w->numSectors; i++){
 		WorldSector *s = w->sectors[i];
-		if(s->collTree && fz < 3 && s->collisionSize < 20000){ fuzzBlob(s, T, 150); fz++; }
+		if(s->ext()->collTree && fz < 3 && s->ext()->collisionSize < 20000){ fuzzBlob(s, T, 150); fz++; }
 		if(geo && s->numTriangles > 0 && s->numTriangles <= 2500 && gt < 2){ testGeometry(s, i, path, T); gt++; }
 	}
 	// SectorDestroyData frees and clears
 	for(int32 i = 0; i < w->numSectors; i++){
 		WorldSector *s = w->sectors[i];
-		CHECK(collisionWorldSectorQueryData(s) == s->collTree, "%s: QueryData", path);
+		CHECK(collisionWorldSectorQueryData(s) == s->ext()->collTree, "%s: QueryData", path);
 		collisionWorldSectorDestroyData(s);
 		CHECK(collisionWorldSectorQueryData(s) == nil, "%s: DestroyData", path);
 	}
@@ -863,8 +864,9 @@ unitTests(void)
 		CHECK(u && u->numSplits == 0, "numSplits == 0 tree must parse");
 		if(u) u->destroy();
 		// as a sector: a downward line through both z planes hits the two front faces (normals +z), near first
-		WorldSector sec; memset(&sec, 0, sizeof sec);
-		sec.isLeaf = 1; sec.numTriangles = 3; sec.numVertices = 6; sec.vertices = gv; sec.triangles = gt; sec.collTree = ct;
+		struct { WorldSector s; WorldSectorExt x; } sb; memset(&sb, 0, sizeof sb);	// ext() lives right behind the sector
+		WorldSector &sec = sb.s;
+		sec.isLeaf = 1; sec.numTriangles = 3; sec.numVertices = 6; sec.vertices = gv; sec.triangles = gt; sb.x.collTree = ct;
 		World w; memset(&w, 0, sizeof w);
 		WorldSector *arr[1] = { &sec };
 		w.sectors = arr; w.numSectors = 1; w.root = (BspNode*)&sec;

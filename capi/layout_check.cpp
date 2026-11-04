@@ -37,7 +37,24 @@ using namespace rw;
 	X(Clump_atomicList, offsetof(Clump, atomics), 0x8) \
 	X(Clump_lightList, offsetof(Clump, lights), 0x10) \
 	X(Clump_cameraList, offsetof(Clump, cameras), 0x18) \
+	X(Clump_inWorldLink, offsetof(Clump, inWorld), 0x20) \
 	X(Clump_size, sizeof(Clump), 0x2c) \
+	X(World_matList_materials, offsetof(World, matList) + offsetof(MaterialList, materials), 0x10) \
+	X(World_matList_numMaterials, offsetof(World, matList) + offsetof(MaterialList, numMaterials), 0x14) \
+	X(World_renderCallBack, offsetof(World, sectorRenderCB), 0x68) \
+	X(WorldSector_triangles, offsetof(WorldSector, triangles), 0x4) \
+	X(WorldSector_vertices, offsetof(WorldSector, vertices), 0x8) \
+	X(WorldSector_normals, offsetof(WorldSector, normals), 0xc) \
+	X(WorldSector_texCoords, offsetof(WorldSector, texCoords), 0x10) \
+	X(WorldSector_preLitLum, offsetof(WorldSector, colors), 0x30) \
+	X(WorldSector_boundingBox, offsetof(WorldSector, planeBBox), 0x48) \
+	X(WorldSector_tightBoundingBox, offsetof(WorldSector, bbox), 0x60) \
+	X(WorldSector_mesh, offsetof(WorldSector, mesh), 0x78) \
+	X(WorldSector_pipeline, offsetof(WorldSector, pipeline), 0x7c) \
+	X(WorldSector_matListWindowBase, offsetof(WorldSector, matIdBase), 0x80) \
+	X(WorldSector_numVertices, offsetof(WorldSector, numVertices), 0x82) \
+	X(WorldSector_numTriangles, offsetof(WorldSector, numTriangles), 0x84) \
+	X(WorldSector_size, sizeof(WorldSector), 0x88) \
 	X(Light_object_flags, offsetof(Light, object) + offsetof(Object, flags), 0x2) \
 	X(Light_object_parent, offsetof(Light, object) + offsetof(Object, parent), 0x4) \
 	X(Light_radius, offsetof(Light, radius), 0x14) \
@@ -97,27 +114,16 @@ using namespace rw;
 	Y(Texture_filterAddressing_w, MSIZE(Texture, filterAddressing), 4) \
 	Y(Texture_refCount_w, MSIZE(Texture, refCount), 4) \
 	Y(Raster_width_w, MSIZE(Raster, width), 4) \
-	Y(Camera_viewWindow_w, MSIZE(Camera, viewWindow), 8)
+	Y(Camera_viewWindow_w, MSIZE(Camera, viewWindow), 8) \
+	Y(WorldSector_numTriangles_w, MSIZE(WorldSector, numTriangles), 2) \
+	Y(WorldSector_matListWindowBase_w, MSIZE(WorldSector, matIdBase), 2)
 
-// NOT satisfied by librw-mfl today (each found by the A0 audit or required by the exe's D3D9 driver / RtFS code sharing the object):
-//   World / WorldSector: game C gap_4c4fd0 + shadow_project_to_ground cb (RpWorld_matList_materials, RpWorldSector_triangles/vertices/
-//     matListWindowBase/numTriangles accessors), rwp_contact_collect, object_set_pipeline_7c (writes +0x7c)
+// NOT satisfied by librw-mfl today (each found by the A0 audit or required by the exe's D3D9 driver / RtFS code sharing the object;
+// World / WorldSector / Clump.inWorldLink were reordered to RW 3.7 and are enforced above):
 //   Raster: the exe D3D9 driver and rw37.h share rasters byte for byte (cType/cFlags/privateFlags/cFormat are bytes at 0x20..0x23)
 //   Camera: RwCameraCalcPixelRay (tier2 C) reads frustumCorners at 0x124 / 0x154; recipViewWindow/viewOffset are swapped in librw
 //   Stream: T-L7 lesson, the original keeps RtFile / memory position at stream+0xc; librw's Stream is a C++ object (vtable at +0)
 #define TODO_FIELDS(X) \
-	X(Clump_inWorldLink, offsetof(Clump, inWorld), 0x20) \
-	X(World_matList_materials, offsetof(World, matList) + offsetof(MaterialList, materials), 0x10) \
-	X(World_matList_numMaterials, offsetof(World, matList) + offsetof(MaterialList, numMaterials), 0x14) \
-	X(World_renderCallBack, offsetof(World, sectorRenderCB), 0x68) \
-	X(WorldSector_triangles, offsetof(WorldSector, triangles), 0x4) \
-	X(WorldSector_vertices, offsetof(WorldSector, vertices), 0x8) \
-	X(WorldSector_normals, offsetof(WorldSector, normals), 0xc) \
-	X(WorldSector_texCoords, offsetof(WorldSector, texCoords), 0x10) \
-	X(WorldSector_matListWindowBase, offsetof(WorldSector, matIdBase), 0x80) \
-	X(WorldSector_numVertices, offsetof(WorldSector, numVertices), 0x82) \
-	X(WorldSector_numTriangles, offsetof(WorldSector, numTriangles), 0x84) \
-	X(WorldSector_size, sizeof(WorldSector), 0x88) \
 	X(Raster_nOffsetX, offsetof(Raster, offsetX), 0x1c) \
 	X(Raster_nOffsetY, offsetof(Raster, offsetY), 0x1e) \
 	X(Raster_cFlags, offsetof(Raster, flags), 0x21) \
@@ -142,11 +148,8 @@ using namespace rw;
 #define TODO_WIDTHS(Y) \
 	Y(Raster_cType_w, MSIZE(Raster, type), 1) \
 	Y(Raster_nOffsetX_w, MSIZE(Raster, offsetX), 2) \
-	Y(Material_refCount_w, MSIZE(Material, refCount), 2) \
-	Y(WorldSector_numTriangles_w, MSIZE(WorldSector, numTriangles), 2) \
-	Y(WorldSector_matListWindowBase_w, MSIZE(WorldSector, matIdBase), 2)
-// no librw member at all (add when the struct is reordered): WorldSector pipeline 0x7c (object_set_pipeline_7c writes it), WorldSector mesh 0x78,
-// RpPTankAtomicExtPrv (game writes actPCount 0x4, instFlags 0x40, srcBlend/dstBlend/vertexAlphaBlend 0xa4..0xac, cSize 0xb8/0xbc through
+	Y(Material_refCount_w, MSIZE(Material, refCount), 2)
+// no librw member at all: RpPTankAtomicExtPrv (game writes actPCount 0x4, instFlags 0x40, srcBlend/dstBlend/vertexAlphaBlend 0xa4..0xac, cSize 0xb8/0xbc through
 // g_ptank_plugin_offset): librw has no PTank plugin.
 
 #if defined(LAYOUT_STRICT) || defined(LAYOUT_STRICT_ALL)

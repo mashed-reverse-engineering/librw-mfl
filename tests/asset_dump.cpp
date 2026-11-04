@@ -207,7 +207,7 @@ static void worldRows(World *w)
 	std::string wk = fmt("%d:%d:%d:%ld:%ld:%s", (int)se.size(), (int)pl.size(), w->matList.numMaterials, nt, nv, hs(allv.data(), allv.size()).c_str());
 	std::string bb; bbox6(bb, w->bbox);
 	std::string blk = "#WORLD " + wk;
-	blk += "\n" + fmt("W,%s,%08x,%d,%s", wk.c_str(), w->format, se.empty() ? 0 : se[0]->numTexCoordSets, bb.c_str());
+	blk += "\n" + fmt("W,%s,%08x,%d,%s", wk.c_str(), w->format, se.empty() ? 0 : w->numTexCoordSets, bb.c_str());
 	for(size_t i = 0; i < pl.size(); i++)
 		blk += "\n" + fmt("WP,%s,%d,%d,%s,%s,%s", wk.c_str(), (int)i, pl[i]->type, hx(pl[i]->value).c_str(), hx(pl[i]->leftValue).c_str(), hx(pl[i]->rightValue).c_str());
 	for(size_t i = 0; i < se.size(); i++){
@@ -215,7 +215,7 @@ static void worldRows(World *w)
 		std::string tb, ob; bbox6(tb, s->bbox); bbox6(ob, s->planeBBox);
 		blk += "\n" + fmt("WS,%s,%d,%d,%d,%d,%s,%s,%s,%s,%s,%s,%s", wk.c_str(), (int)i, s->numVertices, s->numTriangles, s->matIdBase, tb.c_str(), ob.c_str(),
 			hs(s->vertices, s->numVertices*12).c_str(), hs(s->triangles, s->numTriangles*8).c_str(), s->normals ? "1" : "0",
-			s->numVertices == 0 ? "0" : s->numTexCoordSets > 0 ? hs(s->texCoords[0], s->numVertices*8).c_str() : "x", hs(s->colors, s->numVertices*4).c_str());
+			s->numVertices == 0 ? "0" : w->numTexCoordSets > 0 ? hs(s->texCoords[0], s->numVertices*8).c_str() : "x", hs(s->colors, s->numVertices*4).c_str());
 	}
 	for(int i = 0; i < w->matList.numMaterials; i++){
 		Material *m = w->matList.materials[i];

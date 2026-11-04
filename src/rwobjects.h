@@ -815,8 +815,8 @@ struct Clump
 	LinkList lights;
 	LinkList cameras;
 
-	World *world;
-	LLLink inWorld;
+	LLLink inWorld;		// 0x20 RW 3.7 inWorldLink
+	World *world;		// 0x28 (RW callback slot); sizeof stays 0x2c
 
 	static int32 numAllocated;
 
@@ -872,32 +872,45 @@ struct PlaneSector
 	BspNode *left, *right;
 };
 
-// atomic sector: a leaf holding geometry (BSP triangle order is v0,v1,v2,mat)
-struct WorldSector
+// librw's own per-sector data: right behind the RW 3.7 part (WorldSector::ext()), ahead of the registered plugins
+struct WorldSectorExt
 {
-	PLUGINBASE		// sector plugin registry (RpWorldSectorRegisterPlugin*), chunks in the sector extension
-	int32 isLeaf;		// 1
-	int32 matIdBase;	// triangle matId + matIdBase indexes World::matList
-	int32 numTriangles, numVertices;
-	BBox bbox;		// tight box from the file, bbox.inf <= bbox.sup
-	BBox planeBBox;		// world box cut along the plane path (RpWorldSectorGetBBox semantics)
-	int32 unusedHdr;	// header word 9: garbage in the files, never test it
-	int32 matFX;		// extension 0x120 value: nonzero = MatFX pipeline on the render atomic
-	int32 numTexCoordSets;
-	V3d *vertices;
-	V3d *normals;		// nil unless NORMALS
-	RGBA *colors;		// nil unless PRELIT
-	TexCoords *texCoords[8];
-	Triangle *triangles;
-	uint8 *collision;	// raw payload of the collision plugin (0x11D), not interpreted yet
-	uint32 collisionSize;
-	struct CollisionTree *collTree;	// parsed from collision (rwcollision.h), nil if absent
 	World *world;
 	Geometry *geometry;	// built lazily by getGeometry for rendering
 	Atomic *atomic;
+	uint8 *collision;	// raw payload of the collision plugin (0x11D)
+	uint32 collisionSize;
+	struct CollisionTree *collTree;	// parsed from collision (rwcollision.h), nil if absent
+	int32 matFX;		// extension 0x120 value: nonzero = MatFX pipeline on the render atomic
+};
 
+// atomic sector: a leaf holding geometry (BSP triangle order is v0,v1,v2,mat).
+// RW 3.7 RpWorldSector layout (game C reads it by offset, ghidra/output/rw_offset_audit_2026-11-03.md); sizeof 0x88.
+// Texture coordinate set count: World::numTexCoordSets (the same for every sector, from the world format).
+struct WorldSector
+{
+	PLUGINBASE		// sector plugin registry (RpWorldSectorRegisterPlugin*), chunks in the sector extension
+	int32 isLeaf;		// 0x00 RW type; 1 here (BspNode test)
+	Triangle *triangles;	// 0x04
+	V3d *vertices;		// 0x08
+	V3d *normals;		// 0x0c nil unless NORMALS
+	TexCoords *texCoords[8];	// 0x10
+	RGBA *colors;		// 0x30 preLitLum, nil unless PRELIT
+	void *repEntry;		// 0x34 unused
+	LinkList collAtomics;	// 0x38 unused, kept empty
+	LinkList lights;	// 0x40 unused, kept empty
+	BBox planeBBox;		// 0x48 boundingBox: world box cut along the plane path (RpWorldSectorGetBBox semantics)
+	BBox bbox;		// 0x60 tightBoundingBox: tight box from the file, bbox.inf <= bbox.sup
+	MeshHeader *mesh;	// 0x78 mesh header of the render geometry once built
+	ObjPipeline *pipeline;	// 0x7c set by the game (object_set_pipeline_7c), not used by librw's sector render
+	uint16 matIdBase;	// 0x80 matListWindowBase: triangle matId + matIdBase indexes World::matList
+	uint16 numVertices;	// 0x82
+	uint16 numTriangles;	// 0x84
+	uint16 pad;		// 0x86
+
+	WorldSectorExt *ext(void) const { return (WorldSectorExt*)(this+1); }
 	Geometry *getGeometry(void);
-	World *getWorld(void) { return this->world; }	// RpWorldSectorGetWorld
+	World *getWorld(void) { return this->ext()->world; }	// RpWorldSectorGetWorld
 	void render(void);		// RpWorldSectorRender: through the world's sector render callback
 	void renderDefault(void);	// the default callback
 	void enableMatFX(void);		// RpMatFXWorldSectorEnableEffects
@@ -914,23 +927,28 @@ struct World
 {
 	PLUGINBASE
 	enum { ID = 7 };
-	Object object;
-	LinkList localLights;	// these have positions (type >= 0x80)
-	LinkList globalLights;	// these do not (type < 0x80)
-	LinkList clumps;
-
-	// BSP world (only set for worlds read from a stream)
-	MaterialList matList;
-	BspNode *root;
+	// RW 3.7 RpWorld layout up to 0x70 (game C reads matList by offset); BSP fields only set for worlds read from a stream
+	Object object;		// 0x00
+	uint32 format;		// 0x08 RW flags slot: the stream's format word
+	int32 renderOrder;	// 0x0c unused
+	MaterialList matList;	// 0x10
+	BspNode *root;		// 0x1c rootSector
+	int32 numTexCoordSets;	// 0x20 from format, the same for every sector
+	int32 numClumpsInWorld;	// 0x24 unused
+	LLLink *currentClumpLink;	// 0x28 unused
+	LinkList clumps;	// 0x2c clumpList
+	LinkList localLights;	// 0x34 lightList: these have positions (type >= 0x80)
+	LinkList globalLights;	// 0x3c directionalLightList: these do not (type < 0x80)
+	V3d invOrigin;		// 0x44 worldOrigin slot, holds the stream's inverse origin
+	BBox bbox;		// 0x50 bbox.inf <= bbox.sup
+	WorldSectorRenderCallBack sectorRenderCB;	// 0x68 renderCallBack; nil is set to the default in create()
+	ObjPipeline *pipeline;	// 0x6c unused
+	// librw only
 	WorldSector **sectors;	// atomic sectors in stream order
 	int32 numSectors;
 	int32 numPlaneSectors;
 	int32 numTriangles, numVertices;
 	int32 colSectorSize;
-	uint32 format;
-	V3d invOrigin;
-	BBox bbox;		// bbox.inf <= bbox.sup
-	WorldSectorRenderCallBack sectorRenderCB;	// nil is set to the default in create()
 
 	static int32 numAllocated;
 

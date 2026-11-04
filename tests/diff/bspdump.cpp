@@ -36,7 +36,7 @@ int main(int argc, char **argv){
 	if(!findChunk(&in, ID_WORLD, &clen, &ver)){ printf("NOWORLD\n"); return 1; }
 	World *w = World::streamRead(&in);
 	if(w == nil){ printf("READFAIL\n"); return 1; }
-	int nsets = w->sectors && w->numSectors ? w->sectors[0]->numTexCoordSets : -1;
+	int nsets = w->sectors && w->numSectors ? w->numTexCoordSets : -1;
 	printf("world fmt %08X nsets %d tri %d vert %d plane %d sect %d nmat %d\n", w->format, nsets,
 	       w->numTriangles, w->numVertices, w->numPlaneSectors, w->numSectors, w->matList.numMaterials);
 	printf("bbox inf %.6g %.6g %.6g sup %.6g %.6g %.6g\n", w->bbox.inf.x, w->bbox.inf.y, w->bbox.inf.z, w->bbox.sup.x, w->bbox.sup.y, w->bbox.sup.z);
@@ -50,7 +50,7 @@ int main(int argc, char **argv){
 		char nb[32] = "-", cb[32] = "-", uv[200] = "";
 		if(s->normals) snprintf(nb, sizeof nb, "%016llx", fnv(s->normals, 12*nv));
 		if(s->colors) snprintf(cb, sizeof cb, "%016llx", fnv(s->colors, 4*nv));
-		for(int k = 0; nv && k < s->numTexCoordSets; k++){
+		for(int k = 0; nv && k < w->numTexCoordSets; k++){
 			char t[40]; snprintf(t, sizeof t, "%s%016llx", k ? "," : "", nv ? fnv(s->texCoords[k], 8*nv) : fnv("", 0));
 			strcat(uv, t);
 		}
