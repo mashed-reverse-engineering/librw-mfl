@@ -408,3 +408,8 @@ EXPORTS
     rw37_RwTextureSetMaskName
     rw37_RwTexDictionaryAddTexture
     rw37_RwTexDictionaryFindNamedTexture
+    mflrw_collis_bind
+    rw37_GeometryForAllTriIntsecLine
+    rw37_WorldForAllTriIntsecBBox
+    rw37_WorldForAllTriIntsecLine
+    rw37_WorldForAllTriIntsecSphere
