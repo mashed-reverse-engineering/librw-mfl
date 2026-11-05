@@ -184,13 +184,15 @@ __attribute__((target("sse"))) static inline void sseOne(u8 *out, const u8 *in, 
 	float o[4]; _mm_storeu_ps(o, z);
 	memcpy(out, o, 12);
 }
-__attribute__((target("sse"))) static u8 *sseMany(u8 *out, const u8 *in, int32_t n, const u8 *m, int pos){
+// force_align_arg_pointer: the exe calls the exports with a 4-aligned stack, gcc keeps r[] in aligned slots (mulps/addps (%esp))
+#define SSEFN __attribute__((target("sse"), force_align_arg_pointer))
+SSEFN static u8 *sseMany(u8 *out, const u8 *in, int32_t n, const u8 *m, int pos){
 	__m128 r[4]; sseLoad(m, r, pos ? 4 : 3);
 	u8 *o = out;
 	do{ sseOne(o, in, r, pos); in += 12; o += 12; }while(--n);
 	return out;
 }
-__attribute__((target("sse"))) static u8 *sseSingle(u8 *out, const u8 *in, const u8 *m, int pos){
+SSEFN static u8 *sseSingle(u8 *out, const u8 *in, const u8 *m, int pos){
 	__m128 r[4]; sseLoad(m, r, pos ? 4 : 3);
 	sseOne(out, in, r, pos);
 	return out;
