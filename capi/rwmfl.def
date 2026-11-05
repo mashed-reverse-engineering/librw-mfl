@@ -485,6 +485,7 @@ EXPORTS
     rw37_TriStripJoin
     rw37_TriStripMarkTriUsed
     rw37_TriStripMeshGenerate
+    rw37_TriStripSortCompare
     rw37_TriStripStripTris
     rw37__rpTriListMeshGenerate
     mflrw_colltree_bind
@@ -495,6 +496,7 @@ EXPORTS
     rw37_BuildTreeDestroy
     rw37_BuildTreeGenerate
     rw37_BuildTriListCollTree
+    rw37_CollTreeValueCompare
     rw37_DivisionScore
     rw37_FuzzyExtentScore
     rw37_GetClipStats
@@ -510,3 +512,16 @@ EXPORTS
     rw37_RwImageMakeMask
     rw37_ImageResampleGetSpan
     rw37_RwImageResample
+    mflrw_uvanim_bind
+    rw37_RpMaterialUVAnimApplyUpdate
+    rw37_RpUVAnimLinearKeyFrameInterpolate
+    rw37_RpUVAnimParamKeyFrameInterpolate
+    rw37__rpUVAnimCreateConsistantMatrices
+    mflrw_camsync_bind
+    rw37_CameraSync
+    mflrw_rwleaf_bind
+    rw37_D3D9MatrixInvertOrthoNormalized
+    rw37_D3D9SortTriList
+    rw37__rwD3D9ConvertToTriList
+    rw37__rwD3D9MeshGetNumVerticesMinIndex
+    rw37__rx_rxRadixExchangeSort

@@ -64,6 +64,8 @@ static int __cdecl cmpValue(const void *a, const void *b){
 	float d = R((X)(*(VInfo *const *)a)->value - (*(VInfo *const *)b)->value);
 	int32_t r; memcpy(&r, &d, 4); return r;
 }
+// exported for LIB_RW group sortcmp (rw6): 0x54ecf0 comes here (fnsizes row CollTreeValueCompare)
+extern "C" int __cdecl rw37_CollTreeValueCompare(const void *a, const void *b){ return cmpValue(a, b); }
 
 // side flags of the active vertices against the plane axis = value
 static void classify(BuildData *bd, u32 axis, float value){

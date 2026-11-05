@@ -108,6 +108,8 @@ static int __cdecl cmpTris(const void *pa, const void *pb){
 	u32 sa = (b->rasIndex < a->rasIndex ? 8 : 0) | (b->pipeIndex < a->pipeIndex ? 4 : 0) | (b->texIndex < a->texIndex ? 2 : 0) | (b->matIndex < a->matIndex ? 1 : 0) | fa;
 	return (int)(sa - sb);
 }
+// exported for LIB_RW group sortcmp (rw6): the exe's own qsort calls at 0x502650 come here (fnsizes row TriStripSortCompare)
+int __cdecl rw37_TriStripSortCompare(const void *pa, const void *pb){ return cmpTris(pa, pb); }
 
 // 0x5031c0: the edge v0 -> v1 of triangle i: joins the reverse edge v1 -> v0 when one has no second triangle yet (both adjacency counts
 // grow), else a new edge at the head of the list
