@@ -478,3 +478,35 @@ EXPORTS
     rw37_D3D9ConvR8G8B8A8ToR4G4B4
     rw37__rwD3D9PixelToRGB
     rw37__rwD3D9RGBToPixel
+    mflrw_tristrip_bind
+    rw37_TriStripAddEdge
+    rw37_TriStripBinEntryArrayCreate
+    rw37_TriStripFollow
+    rw37_TriStripJoin
+    rw37_TriStripMarkTriUsed
+    rw37_TriStripMeshGenerate
+    rw37_TriStripStripTris
+    rw37__rpTriListMeshGenerate
+    mflrw_colltree_bind
+    rw37_BuildDataDestroy
+    rw37_BuildPlaneSectorCreate
+    rw37_BuildPolySectorCreate
+    rw37_BuildTreeCountLeafNodes
+    rw37_BuildTreeDestroy
+    rw37_BuildTreeGenerate
+    rw37_BuildTriListCollTree
+    rw37_DivisionScore
+    rw37_FuzzyExtentScore
+    rw37_GetClipStats
+    rw37_SortPolygons
+    rw37__rpCollTreeBuild
+    rw37__rpCollTreeCreate
+    mflrw_image_bind
+    rw37_ImageConvertDepth
+    rw37_ImageStraightCopy
+    rw37_RwImageApplyMask
+    rw37_RwImageCopy
+    rw37_RwImageGammaCorrect
+    rw37_RwImageMakeMask
+    rw37_ImageResampleGetSpan
+    rw37_RwImageResample
