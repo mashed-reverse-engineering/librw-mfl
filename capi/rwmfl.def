@@ -442,3 +442,39 @@ EXPORTS
     rw37__rpD3D9VertexDeclarationInstWeights
     rw37__rpD3D9VertexDeclarationUnInstV2d
     rw37__rpD3D9VertexDeclarationUnInstV3d
+    mflrw_rwmath_bind
+    rw37_CameraBuildParallelViewMatrix
+    rw37_CameraUpdateZShiftScale
+    rw37_RpMorphTargetCalcBoundingSphere
+    rw37_RwBBoxContainsPoint
+    rw37_RwCameraFrustumTestSphere
+    rw37_RwD3D9CameraIsBBoxFullyInsideFrustum
+    rw37_RwD3D9CameraIsSphereFullyInsideFrustum
+    rw37_RwFrameOrthoNormalize
+    rw37_RwFrameRotate
+    rw37_RwFrameScale
+    rw37_RwFrameSetIdentity
+    rw37_RwFrameTransform
+    rw37_RwFrameTranslate
+    rw37__rwIntelSSEP4V3dTransformPoint
+    rw37__rwIntelSSEP4V3dTransformPoints
+    rw37__rwIntelSSEP4V3dTransformVector
+    rw37__rwIntelSSEP4V3dTransformVectors
+    rw37__rwIntelSSEV3dTransformPoint
+    rw37__rwIntelSSEV3dTransformPoints
+    rw37__rwIntelSSEV3dTransformVector
+    rw37__rwIntelSSEV3dTransformVectors
+    rw37__rwIntelx86AsmMatrixMultiply
+    rw37__rwIntelx86AsmV3dTransformPoint
+    rw37__rwIntelx86AsmV3dTransformPoints
+    rw37__rwIntelx86AsmV3dTransformVector
+    rw37__rwIntelx86AsmV3dTransformVectors
+    mflrw_pixfmt_bind
+    rw37_D3D9ConvR8G8B8A8ToA1R5G5B5
+    rw37_D3D9ConvR8G8B8A8ToA4R4G4B4
+    rw37_D3D9ConvR8G8B8A8ToA8L8
+    rw37_D3D9ConvR8G8B8A8ToL16
+    rw37_D3D9ConvR8G8B8A8ToL8
+    rw37_D3D9ConvR8G8B8A8ToR4G4B4
+    rw37__rwD3D9PixelToRGB
+    rw37__rwD3D9RGBToPixel
