@@ -413,3 +413,12 @@ EXPORTS
     rw37_WorldForAllTriIntsecBBox
     rw37_WorldForAllTriIntsecLine
     rw37_WorldForAllTriIntsecSphere
+    mflrw_splanim_bind
+    rw37_RpHAnimKeyFrameInterpolate
+    rw37_RpSplineFindMatrix
+    rw37_RpSplineFindPosition
+    rw37_RtAnimInterpolatorAddAnimTime
+    rw37_RtAnimInterpolatorSetCurrentAnim
+    rw37_RtAnimInterpolatorSubAnimTime
+    rw37__rwV3dNormalize
+    rw37__splCreateSpline
