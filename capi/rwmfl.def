@@ -438,6 +438,7 @@ EXPORTS
     rw37__rpD3D9VertexDeclarationInstIndicesRemap
     rw37__rpD3D9VertexDeclarationInstV2d
     rw37__rpD3D9VertexDeclarationInstV3d
+    rw37__rpD3D9VertexDeclarationInstV3dComp
     rw37__rpD3D9VertexDeclarationInstV3dMorph
     rw37__rpD3D9VertexDeclarationInstWeights
     rw37__rpD3D9VertexDeclarationUnInstV2d
@@ -525,3 +526,13 @@ EXPORTS
     rw37__rwD3D9ConvertToTriList
     rw37__rwD3D9MeshGetNumVerticesMinIndex
     rw37__rx_rxRadixExchangeSort
+    mflrw_rwleaf2_bind
+    rw37_BMPImageSetSpan
+    rw37_HAnimKeyFrameToMatrix
+    rw37_PVSCalculateSectorBounds
+    rw37_RpLightGetConeAngle
+    rw37_Rt2dBrushSetRGBA
+    mflrw_splopen_bind
+    rw37_SplineBasisMatrixCreate
+    rw37_SplineClose
+    rw37_SplineOpen

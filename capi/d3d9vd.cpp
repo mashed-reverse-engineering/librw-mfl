@@ -5,8 +5,8 @@
 // type = D3DDECLTYPE 0..14 (FLOAT1..4, D3DCOLOR, UBYTE4, SHORT2/4, UBYTE4N, SHORT2/4N, USHORT2/4N, UDEC3, DEC3N); the Inst* functions write
 // numVerts elements at a byte stride and return the element size (the original reads its size table with the type as index: types > 16
 // read past the table there, here they return 0); other types write nothing.  Float to int is fistp at the current rounding mode.
-// Not here: FUN_00508600 (tangent instancing: engine allocator, D3D9 index buffer Lock/Unlock, RwV3dLength / _rwInvSqrt) and
-// InstV3dComp 0x506ad0 (no caller, no symbol).
+// InstV3dComp 0x506ad0 (compressed normals, called from the world-sector instance callback 0x5005b0) is group d3d9vc (rw7, fnsizes row).
+// Not here: FUN_00508600 (tangent instancing: engine allocator, D3D9 index buffer Lock/Unlock, RwV3dLength / _rwInvSqrt).
 // No exe state, no adapter: the kernels only touch their arguments.
 // Check: tools/delink/rw_d3d9vd_check.sh (the original code and these exports natively under Wine on the same random inputs, outputs and the
 // untouched bytes around them compared word for word).
@@ -76,6 +76,21 @@ struct SrcMorph {
 	void next(){ p1 += 12; p2 += 12; }
 };
 
+// InstV3dComp (LIB_RW group d3d9vc, rw7): compressed normals, 4 signed bytes per vertex (x, y, z, pad); component = byte * 1/128 (fild, fmul,
+// exact in every precision), stored as a float before the conversion
+static const float kInv128 = 0.0078125f;	// 0x5ec3d0
+struct SrcComp {
+	const u8 *p;
+	float v(int c) const { float f = (X)(int8_t)p[c] * kInv128; return f; }
+	u32 bits(int c) const { float f = v(c); u32 b; memcpy(&b, &f, 4); return b; }
+	int32_t ival(int c, float k) const {
+		if(k == 0) return fist(v(c));
+		float t = v(c) * k;
+		return fist(t);
+	}
+	void next(){ p += 4; }
+};
+
 template<class S> static u32 encode(u32 type, u8 *m, S s, int32_t n, u32 stride){
 	if(type > 14 || n <= 0) return sizeOf(type);
 	for(; n > 0; n--, m += stride, s.next()){
@@ -119,6 +134,12 @@ u32 __cdecl rw37__rpD3D9VertexDeclarationInstV2d(u32 type, u8 *mem, const u8 *sr
 // 0x507480: the morph target blend of two RwV3d arrays (see SrcMorph)
 u32 __cdecl rw37__rpD3D9VertexDeclarationInstV3dMorph(u32 type, u8 *mem, const u8 *src1, const u8 *src2, float scale, int32_t numVerts, u32 stride){
 	SrcMorph s = { src1, src2, scale };
+	return encode(type, mem, s, numVerts, stride);
+}
+
+// 0x506ad0 (group d3d9vc): compressed normals (SrcComp) of the world-sector instance callback 0x5005b0; no block-copy shortcut
+u32 __cdecl rw37__rpD3D9VertexDeclarationInstV3dComp(u32 type, u8 *mem, const u8 *src, int32_t numVerts, u32 stride){
+	SrcComp s = { src };
 	return encode(type, mem, s, numVerts, stride);
 }
 
