@@ -422,3 +422,11 @@ EXPORTS
     rw37_RtAnimInterpolatorSubAnimTime
     rw37__rwV3dNormalize
     rw37__splCreateSpline
+    rw37_RtBezierQuadBernsteinWeight3d
+    rw37_RtBezierQuadBernsteinWeight4d
+    rw37_RtBezierQuadOriginDifference3d
+    rw37_RtBezierQuadOriginDifference4d
+    rw37__rpPatchGenerateQuadIndex
+    rw37__rpPatchRefineQuadColor
+    rw37__rpPatchRefineQuadTexCoords
+    rw37__rpPatchRefineQuadVector
