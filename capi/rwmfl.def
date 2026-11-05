@@ -430,3 +430,11 @@ EXPORTS
     rw37__rpPatchRefineQuadColor
     rw37__rpPatchRefineQuadTexCoords
     rw37__rpPatchRefineQuadVector
+    rw37__rpD3D9VertexDeclarationInstColor
+    rw37__rpD3D9VertexDeclarationInstIndicesRemap
+    rw37__rpD3D9VertexDeclarationInstV2d
+    rw37__rpD3D9VertexDeclarationInstV3d
+    rw37__rpD3D9VertexDeclarationInstV3dMorph
+    rw37__rpD3D9VertexDeclarationInstWeights
+    rw37__rpD3D9VertexDeclarationUnInstV2d
+    rw37__rpD3D9VertexDeclarationUnInstV3d
