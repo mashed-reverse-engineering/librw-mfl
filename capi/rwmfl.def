@@ -430,6 +430,10 @@ EXPORTS
     rw37__rpPatchRefineQuadColor
     rw37__rpPatchRefineQuadTexCoords
     rw37__rpPatchRefineQuadVector
+    mflrw_hanimcam_bind
+    rw37_CameraBuildParallelClipPlanes
+    rw37_CameraBuildPerspClipPlanes
+    rw37_RpHAnimHierarchyUpdateMatrices
     rw37__rpD3D9VertexDeclarationInstColor
     rw37__rpD3D9VertexDeclarationInstIndicesRemap
     rw37__rpD3D9VertexDeclarationInstV2d

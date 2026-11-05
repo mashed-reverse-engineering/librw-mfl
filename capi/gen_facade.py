@@ -160,6 +160,8 @@ D += ['    ' + n for n in sorted(set(re.findall(r'\b(mflrw_collis_bind|rw37_\w+)
 D += ['    ' + n for n in sorted(set(re.findall(r'\b(mflrw_splanim_bind|rw37_\w+)\(', open(here + '/splanim.cpp').read())))]
 # BEZPAT (capi/bezpat.cpp): RtBezPat matrix kernels and the RpPatch refiners (no exe state)
 D += ['    ' + n for n in sorted(set(re.findall(r'\b(rw37_\w+)\(', open(here + '/bezpat.cpp').read())))]
+# HANIMCAM (capi/hanimcam.cpp): RpHAnimHierarchyUpdateMatrices and the camera frustum builders on the exe's objects, plus their exe function binding
+D += ['    ' + n for n in sorted(set(re.findall(r'\b(mflrw_hanimcam_bind|rw37_\w+)\(', open(here + '/hanimcam.cpp').read())))]
 # D3D9VD (capi/d3d9vd.cpp): the D3D9 vertex-declaration instancing converters (no exe state)
 D += ['    ' + n for n in sorted(set(re.findall(r'\b(rw37_\w+)\(', open(here + '/d3d9vd.cpp').read())))]
 open(here + '/rwmfl.def', 'w').write('\n'.join(D) + '\n')
