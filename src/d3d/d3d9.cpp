@@ -770,6 +770,7 @@ readNativeTexture(Stream *stream)
 	tex->filterAddressing = stream->readU32();
 	stream->read8(tex->name, 32);
 	stream->read8(tex->mask, 32);
+	tex->name[31] = tex->mask[31] = 0;	// E3: a 32-char name has no NUL in the file; keep 31 like every other name path
 
 	// Raster
 	int32 format = stream->readI32();
@@ -823,16 +824,23 @@ readNativeTexture(Stream *stream)
 
 	uint32 size;
 	uint8 *data;
+	// E3: a level whose size is not the raster's (or that the stream cannot fill: missing mips) fails the read instead of overrunning the lock
 	for(int32 i = 0; i < numLevels; i++){
 		size = stream->readU32();
 		if(i < raster->getNumLevels()){
+			if(size != getLevelSize(raster, i)) goto fail;
 			data = raster->lock(i, Raster::LOCKWRITE|Raster::LOCKNOFETCH);
-			stream->read8(data, size);
-			raster->unlock(i);
+			bool ok = data && stream->read8(data, size) == size;
+			if(data) raster->unlock(i);
+			if(!ok) goto fail;
 		}else
 			stream->seek(size);
 	}
 	return tex;
+fail:
+	RWERROR((ERR_GENERAL, "native texture: bad or missing level data"));
+	tex->destroy();	// destroys the raster too
+	return nil;
 }
 
 void

@@ -124,7 +124,10 @@ void __cdecl mflrw_mem_bind(void *const *exeTable){
 	if(g_live){ fprintf(stderr, "mflrw: heap: mem_bind refused, %u live DLL-heap blocks\n", g_live); return; }
 	xMalloc = (void *(__cdecl *)(size_t, uint32_t))exeTable[0]; xFree = (void (__cdecl *)(void *))exeTable[1];
 	xRealloc = (void *(__cdecl *)(void *, size_t, uint32_t))exeTable[2]; xCalloc = (void *(__cdecl *)(size_t, size_t, uint32_t))exeTable[3];
-	if(!g_heapBound) CreateThread(nil, 0, heapReporter, nil, 0, nil);
+	if(!g_heapBound){		// close the handle at once: an open handle shifts the numbers of every later kernel handle (the audio library stores them) against the original
+		HANDLE t = CreateThread(nil, 0, heapReporter, nil, 0, nil);
+		if(t) CloseHandle(t);
+	}
 	g_heapBound = 1;
 	heapReport("bind");
 }
@@ -257,10 +260,12 @@ RWAPI RwStream * RwStreamOpen(RwStreamType type, RwStreamAccessType access, cons
 	fprintf(stderr, "mflrw: RwStreamOpen type %d access %d unsupported\n", (int)type, (int)access);
 	return nil;
 }
+void *mflrw_chunkStream; uint32 mflrw_chunkType, mflrw_chunkSize;	// the last chunk RwStreamFindChunk found (E3)
 // L2:oracle
 RWAPI RwBool RwStreamClose(RwStream *stream, void *pData){
 	TR("mflrw: Close(%p)\n", (void*)stream);
 	Stream *s = (Stream*)stream;
+	if(stream == mflrw_chunkStream) mflrw_chunkStream = nil;
 	if(isMem(s)){
 		// 0x4dc2a0: pData is written back only for WRITE / APPEND memory streams (not supported here); the game passes junk pointers for READ streams (stack smash found in S2-d)
 	}else
@@ -280,6 +285,7 @@ RWAPI RwBool RwStreamFindChunk(RwStream *stream, RwUInt32 type, RwUInt32 *length
 			if((uint32)ver < 0x35000 || (uint32)ver > 0x37002) return 0;	// 0x4dc7be: version outside 3.5.0.0 .. 3.7.0.2 (the original also reports RwError 0x80000004)
 			if(lengthOut) *lengthOut = h.size;
 			if(versionOut) *versionOut = (uint32)ver;	// 0x4dc540: the UNPACKED version (0x37002), T-L6 was wrong about raw
+			mflrw_chunkStream = stream; mflrw_chunkType = type; mflrw_chunkSize = (uint32)h.size;	// for readers that need the size (RtPITexDictionaryStreamRead)
 			TR("mflrw: FindChunk(%p, 0x%x) = len %d ver %08x\n", (void*)stream, type, h.size, h.id);
 			return 1;
 		}

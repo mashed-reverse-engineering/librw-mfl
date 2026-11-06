@@ -29,7 +29,24 @@ RWAPI RwRaster * RwRasterGetOffset(RwRaster *raster, RwInt16 *xOffset, RwInt16 *
 // L2:impl  (native chunk 0x16 stream)
 RWAPI RwTexDictionary * RwTexDictionaryStreamRead(RwStream *stream){ mflrw_ensure_engine(); return (RwTexDictionary*)TexDictionary::streamRead((Stream*)stream); }
 // L2:oracle  (platform independent TXD, chunk 0x23: the form the game's course / car TXDs are in)
-RWAPI RwTexDictionary * RtPITexDictionaryStreamRead(RwStream *stream){ mflrw_ensure_engine(); return (RwTexDictionary*)TexDictionary::streamReadPI((Stream*)stream); }
+// E3: the game calls it like the original 0x55ff00 expects, right after RwStreamFindChunk(0x23) (an_rw_helpers_4c3b70.c), so the stream is past the chunk
+// header: the chunk size comes from that FindChunk (core.cpp).  A stream still at the header (tests/asset_dump.cpp) is read as before.
+extern "C" void *mflrw_chunkStream; extern "C" uint32 mflrw_chunkType, mflrw_chunkSize;
+RWAPI RwTexDictionary * RtPITexDictionaryStreamRead(RwStream *stream){
+	mflrw_ensure_engine();
+	if(stream != mflrw_chunkStream || mflrw_chunkType != ID_PITEXDICTIONARY)
+		return (RwTexDictionary*)TexDictionary::streamReadPI((Stream*)stream);
+	mflrw_chunkStream = nil;
+	uint32 n = mflrw_chunkSize;
+	if(n < 4 || n > 256*1024*1024) return nil;
+	uint8 *buf = (uint8*)rwMalloc(n + 12, MEMDUR_FUNCTION | ID_TEXTURE);
+	if(buf == nil) return nil;
+	uint32 hdr[3] = { ID_PITEXDICTIONARY, n, 0 };
+	memcpy(buf, hdr, 12);
+	TexDictionary *txd = ((Stream*)stream)->read8(buf + 12, n) == n ? TexDictionary::readPI(buf, n + 12) : nil;
+	rwFree(buf);
+	return (RwTexDictionary*)txd;
+}
 // L2:impl
 RWAPI RwTexDictionary * RwTexDictionaryCreate(void){ mflrw_ensure_engine(); return (RwTexDictionary*)TexDictionary::create(); }
 // L2:impl

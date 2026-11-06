@@ -12,6 +12,7 @@
 #include "../rwengine.h"
 #include "rwd3d.h"
 #include "rwd3dimpl.h"
+#include "d3drasfmt.h"
 
 #define PLUGIN_ID ID_DRIVER
 
@@ -352,9 +353,39 @@ findFormatInfoD3D(uint32 d3dformat)
 }
 
 
+#ifdef RW_D3D9
+// E3: the device answers _rwD3D9FindCorrectRasterFormat asks for (d3drasfmt.h), queried on every raster create like the original
+static void
+getRasFmtCaps(RasFmtCaps *c)
+{
+	static const D3DFORMAT f[6] = { D3DFMT_P8, D3DFMT_A8R8G8B8, D3DFMT_X8R8G8B8, D3DFMT_A4R4G4B4, D3DFMT_L8, D3DFMT_A1R5G5B5 };
+	D3DFORMAT disp = d3d9Globals.startMode.mode.Format, ds = d3d9Globals.present.AutoDepthStencilFormat;
+	IDirect3D9 *d = d3d9Globals.d3d9;
+	c->tex = c->rt = c->ds = 0;
+	for(int i = 0; i < 6; i++){
+		if(d->CheckDeviceFormat(d3d9Globals.adapter, D3DDEVTYPE_HAL, disp, 0, D3DRTYPE_TEXTURE, f[i]) >= 0) c->tex |= 1u << i;
+		if(d->CheckDeviceFormat(d3d9Globals.adapter, D3DDEVTYPE_HAL, disp, D3DUSAGE_RENDERTARGET, D3DRTYPE_TEXTURE, f[i]) >= 0) c->rt |= 1u << i;
+		if(d->CheckDepthStencilMatch(d3d9Globals.adapter, D3DDEVTYPE_HAL, disp, f[i], ds) >= 0) c->ds |= 1u << i;
+	}
+	c->displayDepth = findFormatDepth(disp);
+	c->zDepth = findFormatDepth(ds);
+	c->textureCaps = (uint8)d3d9Globals.caps.TextureCaps;
+	// ponytail: the exe reads the mode's format word from its video mode table (0x947162); assumed 565 / 8888 by depth as RwEngineGetVideoModeInfo (capi/core.cpp)
+	c->modeFormat = c->displayDepth == 16 ? 0x200 : 0x500;
+}
+#endif
+
 static void
 rasterSetFormat(Raster *raster)
 {
+#ifdef RW_D3D9
+	if(d3d9Globals.d3d9){	// a device is open: the original driver's choice (format bits only, the type stays in raster->type)
+		RasFmtCaps c;
+		getRasFmtCaps(&c);
+		raster->format = findCorrectRasterFormat(raster->type, raster->format, &c) & 0xFF00;
+		// ponytail: CAMERA / ZBUFFER keep librw's own D3D format below (backbuffer / AutoDepthStencilFormat); only the RW format bits follow the original
+	}
+#endif
 	if(raster->format == 0){
 		// have to find a format first
 		// this could perhaps be a bit more intelligent
@@ -722,6 +753,14 @@ imageFindRasterFormat(Image *img, int32 type,
 	return 1;
 }
 
+// E3: X8R8G8B8 texels get X = 0xff like the original driver (tex hashes of the ctrl traces); conv_BGR888_from_RGB888 leaves byte 3 as the lock found it
+static void
+conv_XRGB8888_from_RGB888(uint8 *out, uint8 *in)
+{
+	conv_BGR888_from_RGB888(out, in);
+	out[3] = 0xFF;
+}
+
 bool32
 rasterFromImage(Raster *raster, Image *image)
 {
@@ -752,7 +791,7 @@ rasterFromImage(Raster *raster, Image *image)
 		if(format == Raster::C8888)
 			conv = conv_BGRA8888_from_RGBA8888;
 		else if(format == Raster::C888)
-			conv = conv_BGR888_from_RGB888;
+			conv = conv_XRGB8888_from_RGB888;
 		else
 			goto err;
 		break;
@@ -760,7 +799,7 @@ rasterFromImage(Raster *raster, Image *image)
 		if(format == Raster::C8888)
 			conv = conv_BGRA8888_from_RGB888;
 		else if(format == Raster::C888)
-			conv = conv_BGR888_from_RGB888;
+			conv = conv_XRGB8888_from_RGB888;
 		else
 			goto err;
 		break;
