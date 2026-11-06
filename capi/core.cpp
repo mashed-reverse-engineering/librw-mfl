@@ -27,16 +27,105 @@ extern "C" void mflrw_d3d9_prestart(void);
 static int shadowInit(void);
 static int g_shadowDone = shadowInit();
 
+// ---- single heap (plan_librw_engine_switch v2 decision 3, L3a): the original runs RwMalloc = the exe's CRT heap (memFuncs = 0 -> RwEngineInit
+// 0x4e96e0 fills engine+0x108 with 0x4e97b0 malloc / 0x4b45fd free / 0x4e97c0 realloc / calloc).  mflrw_mem_bind(RwOsGetMemoryInterface()) hands
+// that table over once, before any DLL allocation; from then RwMalloc/RwFree/RwRealloc/RwCalloc, the shadow table (+0x108..+0x114) and librw's
+// Engine::memfuncs all allocate on the exe heap.  Without the bind (test exes, older exe) they use the DLL's msvcrt heap as before.
+// Foreign-free counter (log only): RwFree / RwRealloc of a pointer that did not come from RwMalloc/RwCalloc/RwRealloc is counted and the first 20
+// are printed; behaviour is unchanged (the pointer is still freed).  Allocations that are not 8-byte aligned are counted the same way.
+static void *__cdecl crtMalloc(size_t n, uint32_t){ return malloc(n); }
+static void __cdecl crtFree(void *p){ free(p); }
+static void *__cdecl crtRealloc(void *p, size_t n, uint32_t){ return realloc(p, n); }
+static void *__cdecl crtCalloc(size_t n, size_t s, uint32_t){ return calloc(n, s); }
+static void *(__cdecl *xMalloc)(size_t, uint32_t) = crtMalloc;
+static void (__cdecl *xFree)(void *) = crtFree;
+static void *(__cdecl *xRealloc)(void *, size_t, uint32_t) = crtRealloc;
+static void *(__cdecl *xCalloc)(size_t, size_t, uint32_t) = crtCalloc;
+static int g_heapBound;
+static unsigned g_allocs, g_foreign, g_misaligned;
+// live set of DLL allocations: open addressing, linear probe, backward-shift delete; its own storage is the DLL's msvcrt heap
+// ponytail: one spin lock around the set (RWA's thread allocates through the table too); per-bucket locks if it ever shows in a profile
+static uintptr_t *g_set; static uint32_t g_cap, g_live;
+static volatile int g_lock;
+static void lock(void){ while(__sync_lock_test_and_set(&g_lock, 1)) while(g_lock) ; }
+static void unlock(void){ __sync_lock_release(&g_lock); }
+static uint32_t slot(uintptr_t p){ return (uint32_t)((p >> 3) * 2654435761u) & (g_cap - 1); }
+static void setAdd(uintptr_t p){
+	if(2 * (g_live + 1) > g_cap){
+		uint32_t oc = g_cap; uintptr_t *os = g_set;
+		g_cap = oc ? 2 * oc : 4096; g_set = (uintptr_t *)calloc(g_cap, sizeof *g_set); g_live = 0;
+		for(uint32_t i = 0; i < oc; i++) if(os[i]) setAdd(os[i]);
+		free(os);
+	}
+	uint32_t i = slot(p);
+	while(g_set[i]) i = (i + 1) & (g_cap - 1);
+	g_set[i] = p; g_live++;
+}
+static int setDel(uintptr_t p){
+	if(!g_cap) return 0;
+	uint32_t i = slot(p);
+	while(g_set[i] != p){ if(!g_set[i]) return 0; i = (i + 1) & (g_cap - 1); }
+	g_set[i] = 0; g_live--;
+	for(uint32_t j = (i + 1) & (g_cap - 1); g_set[j]; j = (j + 1) & (g_cap - 1)){	// backward shift: re-place the rest of the cluster
+		uintptr_t q = g_set[j]; g_set[j] = 0; uint32_t k = slot(q);
+		while(g_set[k]) k = (k + 1) & (g_cap - 1);
+		g_set[k] = q;
+	}
+	return 1;
+}
+static void *track(void *p){
+	if(!p) return p;
+	lock(); g_allocs++; setAdd((uintptr_t)p); unlock();
+	if((uintptr_t)p & 7){ g_misaligned++; fprintf(stderr, "mflrw: heap: allocation %p not 8-byte aligned\n", p); }
+	return p;
+}
+static int untrack(void *p, const char *what){
+	lock(); int mine = setDel((uintptr_t)p); unsigned n = mine ? 0 : ++g_foreign; unlock();
+	if(n && n <= 20) fprintf(stderr, "mflrw: heap: foreign %s %p (#%u)\n", what, p, n);
+	return mine;
+}
+static void heapReport(const char *when){
+	fprintf(stderr, "mflrw: heap %s: bound %d allocs %u live %u foreign %u misaligned %u\n", when, g_heapBound, g_allocs, g_live, g_foreign, g_misaligned);
+}
+static struct HeapAtExit { ~HeapAtExit(){ heapReport("exit"); } } g_heapAtExit;
+
 extern "C" {
 // L2:impl
-RWAPI void * RwMalloc(size_t size, RwUInt32 hint){ (void)hint; return malloc(size); }
+RWAPI void * RwMalloc(size_t size, RwUInt32 hint){ return track(xMalloc(size, hint)); }
 // L2:impl
-RWAPI void RwFree(void *mem){ free(mem); }
-// L2:impl
-RWAPI void * RwRealloc(void *mem, size_t size, RwUInt32 hint){ (void)hint; return realloc(mem, size); }
-// L2:impl
-RWAPI void * RwCalloc(size_t n, size_t size, RwUInt32 hint){ (void)hint; return calloc(n, size); }
+RWAPI void RwFree(void *mem){ if(!mem) return; untrack(mem, "free"); xFree(mem); }
+// L2:impl  (failure keeps the old block; size 0 frees it like the CRT)
+RWAPI void * RwRealloc(void *mem, size_t size, RwUInt32 hint){
+	if(!mem) return RwMalloc(size, hint);
+	int mine = untrack(mem, "realloc");
+	void *r = xRealloc(mem, size, hint);
+	if(r) return track(r);
+	if(size && mine){ lock(); setAdd((uintptr_t)mem); unlock(); }
+	return r;
 }
+// L2:impl
+RWAPI void * RwCalloc(size_t n, size_t size, RwUInt32 hint){ return track(xCalloc(n, size, hint)); }
+// L2:impl  RW 3.7: &RwEngineInstance->memoryFuncs (0x4e9940); the shadow's table forwards to the four entries above
+RWAPI RwMemoryFunctions * RwOsGetMemoryInterface(void){ return (RwMemoryFunctions *)(g_shadow.raw + 0x108); }
+// exe table = RW 3.7 RwMemoryFunctions {malloc(size, hint), free(p), realloc(p, size, hint), calloc(n, size, hint)}; refused once the DLL heap holds blocks
+void __cdecl mflrw_mem_bind(void *const *exeTable){
+	if(g_live){ fprintf(stderr, "mflrw: heap: mem_bind refused, %u live DLL-heap blocks\n", g_live); return; }
+	xMalloc = (void *(__cdecl *)(size_t, uint32_t))exeTable[0]; xFree = (void (__cdecl *)(void *))exeTable[1];
+	xRealloc = (void *(__cdecl *)(void *, size_t, uint32_t))exeTable[2]; xCalloc = (void *(__cdecl *)(size_t, size_t, uint32_t))exeTable[3];
+	g_heapBound = 1;
+	heapReport("bind");
+}
+// out[0..4] = bound, allocs, live, foreign, misaligned; print != 0 also writes the log line.  Returns foreign.
+unsigned __cdecl mflrw_heap_stats(unsigned *out, int print){
+	if(out){ out[0] = g_heapBound; out[1] = g_allocs; out[2] = g_live; out[3] = g_foreign; out[4] = g_misaligned; }
+	if(print) heapReport("stats");
+	return g_foreign;
+}
+}
+// librw's own allocations (Engine::memfuncs) go through the same tracked entries
+static void *lwMalloc(size_t n, uint32 hint){ return n ? RwMalloc(n, hint) : nil; }
+static void *lwRealloc(void *p, size_t n, uint32 hint){ return RwRealloc(p, n, hint); }
+static MemoryFunctions g_lwMem = { lwMalloc, lwRealloc, RwFree, nil, nil };
 static int ci_cmp(const char *a, const char *b){
 	for(;; a++, b++){ int x = tolower((unsigned char)*a), y = tolower((unsigned char)*b); if(x != y) return x < y ? -1 : 1; if(!x) return 0; }
 }
@@ -69,7 +158,7 @@ static void setFileFuncs(void){
 extern "C" void mflrw_ensure_engine(void){
 	if(engine) return;
 	engineHeadless = 1;
-	if(Engine::state == Engine::Dead) Engine::init(nil);
+	if(Engine::state == Engine::Dead) Engine::init(&g_lwMem);
 	Engine::open(nil);
 	engineHeadless = 0;
 	setFileFuncs();
@@ -80,9 +169,9 @@ extern "C" {
 
 RWAPI void * rwmfl_engine(void){ return engine; }
 
-// ---- engine life cycle (RwEngine*): the memory functions the game passes are not used (librw allocates with malloc/free, which RwMalloc/RwFree share)
+// ---- engine life cycle (RwEngine*): librw allocates through RwMalloc/RwFree (single heap above); the game passes memFuncs = 0, the exe heap comes from mflrw_mem_bind
 // L2:impl
-RWAPI RwBool RwEngineInit(const RwMemoryFunctions *memFuncs, RwUInt32 initFlags, RwUInt32 resArenaSize){ (void)memFuncs; (void)initFlags; (void)resArenaSize; return Engine::init(nil); }
+RWAPI RwBool RwEngineInit(const RwMemoryFunctions *memFuncs, RwUInt32 initFlags, RwUInt32 resArenaSize){ (void)memFuncs; (void)initFlags; (void)resArenaSize; return Engine::init(&g_lwMem); }
 // L2:impl
 RWAPI RwBool RwEngineOpen(RwEngineOpenParams *initParams){
 	if(!Engine::open((EngineOpenParams*)initParams)) return 0;
@@ -96,7 +185,7 @@ RWAPI RwBool RwEngineStop(void){ Engine::stop(); return 1; }
 // L2:impl
 RWAPI RwBool RwEngineClose(void){ Engine::close(); return 1; }
 // L2:impl
-RWAPI RwBool RwEngineTerm(void){ Engine::term(); return 1; }
+RWAPI RwBool RwEngineTerm(void){ Engine::term(); heapReport("term"); return 1; }
 // L2:impl
 RWAPI RwInt32 RwEngineGetNumSubSystems(void){ return Engine::getNumSubSystems(); }
 // L2:impl

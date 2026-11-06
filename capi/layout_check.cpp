@@ -102,11 +102,27 @@ using namespace rw;
 	X(Matrix_size, sizeof(Matrix), 0x40) \
 	X(Matrix_up, offsetof(Matrix, up), 0x10) \
 	X(Matrix_at, offsetof(Matrix, at), 0x20) \
-	X(Matrix_pos, offsetof(Matrix, pos), 0x30)
+	X(Matrix_pos, offsetof(Matrix, pos), 0x30) \
+	/* rows from output/rw_offset_audit_2026-11-03.csv: typed game/rwp keys at the same librw offset, not asserted before (L3b 2026-11-05) */ \
+	X(Atomic_object_flags, offsetof(Atomic, object) + offsetof(Object, flags), 0x2) \
+	X(Geometry_object_type, offsetof(Geometry, object) + offsetof(Object, type), 0x0) \
+	X(Material_color_alpha, offsetof(Material, color) + offsetof(RGBA, alpha), 0x7) \
+	X(Material_surfaceProps_specular, offsetof(Material, surfaceProps) + offsetof(SurfaceProperties, specular), 0x10) \
+	X(Material_surfaceProps_diffuse, offsetof(Material, surfaceProps) + offsetof(SurfaceProperties, diffuse), 0x14) \
+	X(Matrix_right_y, offsetof(Matrix, right) + offsetof(V3d, y), 0x4) \
+	X(Matrix_right_z, offsetof(Matrix, right) + offsetof(V3d, z), 0x8) \
+	X(Matrix_flags, offsetof(Matrix, flags), 0xc) \
+	X(Matrix_up_y, offsetof(Matrix, up) + offsetof(V3d, y), 0x14) \
+	X(Matrix_up_z, offsetof(Matrix, up) + offsetof(V3d, z), 0x18) \
+	X(Matrix_at_y, offsetof(Matrix, at) + offsetof(V3d, y), 0x24) \
+	X(Matrix_at_z, offsetof(Matrix, at) + offsetof(V3d, z), 0x28) \
+	X(Matrix_pos_y, offsetof(Matrix, pos) + offsetof(V3d, y), 0x34) \
+	X(Matrix_pos_z, offsetof(Matrix, pos) + offsetof(V3d, z), 0x38)
 
 // field widths the game reads / writes with a fixed size (RW 3.7 width)
 #define WIDTHS(Y) \
 	Y(Object_flags_w, MSIZE(Object, flags), 1) \
+	Y(Matrix_flags_w, MSIZE(Matrix, flags), 4) \
 	Y(Atomic_interpolator_flags_w, MSIZE(Atomic, interpolatorFlags), 4) \
 	Y(Geometry_lockedSinceLastInst_w, MSIZE(Geometry, lockedSinceInst), 2) \
 	Y(Geometry_refCount_w, MSIZE(Geometry, refCount), 2) \
@@ -157,6 +173,9 @@ using namespace rw;
 #define Y(n, got, want) static_assert((got) == (want), #n);
 FIELDS(X)
 WIDTHS(Y)
+#ifdef LAYOUT_PLANT	// negative fixture (tools/layout_fixture.sh): one wrong row must fail the build
+X(Planted_Matrix_pos, offsetof(Matrix, pos), 0x34)
+#endif
 #ifdef LAYOUT_STRICT_ALL
 TODO_FIELDS(X)
 TODO_WIDTHS(Y)

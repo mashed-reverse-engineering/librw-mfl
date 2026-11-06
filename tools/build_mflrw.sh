@@ -30,3 +30,5 @@ echo "built $O/mflrw.dll $O/mflrw_null.dll"
 i686-w64-mingw32-gcc -O1 -mfpmath=387 -w -I"$R/capi" "$R/capi/test_g0.c" -o "$O/test_g0.exe"
 # S2-c test: engine + stream + file system manager through the C ABI; run: docker run --rm -v $O:/t tianon/wine:latest wine /t/test_s2c.exe /t/mflrw_null.dll
 i686-w64-mingw32-gcc -O1 -mfpmath=387 -w -I"$R/capi" "$R/capi/test_s2c.c" -o "$O/test_s2c.exe"
+# L3a heap fixture (single heap, foreign-free counter): wine /t/test_heap.exe /t/mflrw_null.dll
+i686-w64-mingw32-gcc -O1 -w "$R/capi/test_heap.c" -o "$O/test_heap.exe"

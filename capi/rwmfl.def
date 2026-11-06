@@ -536,3 +536,5 @@ EXPORTS
     rw37_SplineBasisMatrixCreate
     rw37_SplineClose
     rw37_SplineOpen
+    mflrw_mem_bind
+    mflrw_heap_stats
