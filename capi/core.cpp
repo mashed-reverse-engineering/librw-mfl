@@ -73,10 +73,12 @@ static int setDel(uintptr_t p){
 	}
 	return 1;
 }
+static void heapReport(const char *when);
 static void *track(void *p){
 	if(!p) return p;
-	lock(); g_allocs++; setAdd((uintptr_t)p); unlock();
+	lock(); unsigned n = ++g_allocs; setAdd((uintptr_t)p); unlock();
 	if((uintptr_t)p & 7){ g_misaligned++; fprintf(stderr, "mflrw: heap: allocation %p not 8-byte aligned\n", p); }
+	if(n >= 64 && !(n & (n - 1))) heapReport("running");	// games are killed, not exited: a running total at 64, 128, 256 ... allocations
 	return p;
 }
 static int untrack(void *p, const char *what){
