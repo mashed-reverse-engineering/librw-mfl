@@ -117,7 +117,20 @@ using namespace rw;
 	X(Matrix_at_y, offsetof(Matrix, at) + offsetof(V3d, y), 0x24) \
 	X(Matrix_at_z, offsetof(Matrix, at) + offsetof(V3d, z), 0x28) \
 	X(Matrix_pos_y, offsetof(Matrix, pos) + offsetof(V3d, y), 0x34) \
-	X(Matrix_pos_z, offsetof(Matrix, pos) + offsetof(V3d, z), 0x38)
+	X(Matrix_pos_z, offsetof(Matrix, pos) + offsetof(V3d, z), 0x38) \
+	/* E4 2026-11-06: the remaining "librw same offset / has <field> at" rows of the audit (closure table: ghidra/output/rw_offset_audit_closure_2026-11-06.csv) */ \
+	X(Atomic_object_privateFlags, offsetof(Atomic, object) + offsetof(Object, privateFlags), 0x3) \
+	X(Atomic_boundingSphere_radius, offsetof(Atomic, boundingSphere) + offsetof(Sphere, radius), 0x28) \
+	X(Atomic_inClumpLink_prev, offsetof(Atomic, inClump) + offsetof(LLLink, prev), 0x44) \
+	X(LLLink_next, offsetof(LLLink, next), 0x0) \
+	X(LinkList_link_next, offsetof(LinkList, link) + offsetof(LLLink, next), 0x0) \
+	X(V3d_x, offsetof(V3d, x), 0x0) \
+	X(Matrix_right, offsetof(Matrix, right), 0x0) \
+	X(Camera_beginUpdate, offsetof(Camera, beginUpdateCB), 0x18) \
+	X(Camera_endUpdate, offsetof(Camera, endUpdateCB), 0x1c) \
+	X(Geometry_refCount, offsetof(Geometry, refCount), 0xe) \
+	X(Image_flags, offsetof(Image, flags), 0x0) \
+	X(TexDictionary_texturesInDict, offsetof(TexDictionary, textures), 0x8)
 
 // field widths the game reads / writes with a fixed size (RW 3.7 width)
 #define WIDTHS(Y) \
@@ -132,7 +145,9 @@ using namespace rw;
 	Y(Raster_width_w, MSIZE(Raster, width), 4) \
 	Y(Camera_viewWindow_w, MSIZE(Camera, viewWindow), 8) \
 	Y(WorldSector_numTriangles_w, MSIZE(WorldSector, numTriangles), 2) \
-	Y(WorldSector_matListWindowBase_w, MSIZE(WorldSector, matIdBase), 2)
+	Y(WorldSector_matListWindowBase_w, MSIZE(WorldSector, matIdBase), 2) \
+	Y(Light_color_w, MSIZE(Light, color), 16) \
+	Y(Camera_viewMatrix_w, MSIZE(Camera, viewMatrix), 64)
 
 // NOT satisfied by librw-mfl today (each found by the A0 audit or required by the exe's D3D9 driver / RtFS code sharing the object;
 // World / WorldSector / Clump.inWorldLink were reordered to RW 3.7 and are enforced above):

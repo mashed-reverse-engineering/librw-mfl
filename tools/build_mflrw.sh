@@ -21,9 +21,16 @@ for P in d3d9 null; do
 		$CXX $PF -c "$f" -o "$D/$b.o" &
 	done
 	wait
+	# libpng 1.0.12 + zlib 1.1.3 (read side) for capi/rwpngread.cpp, configured as the exe's copy (ghidra output/libmatch2/build_libs.sh zlib)
+	for f in "$R"/capi/png/*.c; do
+		b=png_$(basename "$f" .c)
+		[ ! -e "$D/$b.o" ] || [ "$f" -nt "$D/$b.o" ] || continue
+		${CC:-i686-w64-mingw32-gcc} -O2 -w -DPNG_NO_STDIO -DPNG_USER_MEM_SUPPORTED -DPNG_NO_CONSOLE_IO -c "$f" -o "$D/$b.o" &
+	done
+	wait
 	LIBS=""; DLL=mflrw_null.dll
 	[ $P = d3d9 ] && { LIBS="-ld3d9 -lgdi32 -luser32"; DLL=mflrw.dll; }
-	$CXX -shared -O2 -static-libgcc -static-libstdc++ -o "$O/$DLL" "$R/capi/rwmfl.def" "$D"/*.o $LIBS -Wl,--out-implib,"$O/${DLL%.dll}.dll.a"
+	$CXX -shared -O2 -static-libgcc -static-libstdc++ -o "$O/$DLL" "$R/capi/rwmfl.def" "$D"/*.o $LIBS -Wl,--no-insert-timestamp -Wl,--out-implib,"$O/${DLL%.dll}.dll.a"
 done
 echo "built $O/mflrw.dll $O/mflrw_null.dll"
 # test exe for the Wine run: tools/build_mflrw.sh also builds $O/test_g0.exe; run  docker run --rm -v $O:/t tianon/wine:latest wine /t/test_g0.exe /t/mflrw.dll

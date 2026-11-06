@@ -9,6 +9,7 @@
 #include "rwmfl.h"
 #include "fsys.h"
 #include "../rw.h"
+#include <windows.h>
 
 using namespace rw;
 static int g_tr; static int tr_on(void){ static int on = -1; if(on < 0){ const char *e = getenv("MFLRW_TRACE"); on = e && *e; }	/* opt-in debug trace to stderr (Wine: WINEPREFIX env must carry MFLRW_TRACE) */ return on && g_tr++ < 400000; }
@@ -42,7 +43,7 @@ static void (__cdecl *xFree)(void *) = crtFree;
 static void *(__cdecl *xRealloc)(void *, size_t, uint32_t) = crtRealloc;
 static void *(__cdecl *xCalloc)(size_t, size_t, uint32_t) = crtCalloc;
 static int g_heapBound;
-static unsigned g_allocs, g_foreign, g_misaligned;
+static unsigned g_allocs, g_frees, g_foreign, g_misaligned;
 // live set of DLL allocations: open addressing, linear probe, backward-shift delete; its own storage is the DLL's msvcrt heap
 // ponytail: one spin lock around the set (RWA's thread allocates through the table too); per-bucket locks if it ever shows in a profile
 static uintptr_t *g_set; static uint32_t g_cap, g_live;
@@ -76,30 +77,39 @@ static int setDel(uintptr_t p){
 static void heapReport(const char *when);
 static void *track(void *p){
 	if(!p) return p;
-	lock(); unsigned n = ++g_allocs; setAdd((uintptr_t)p); unlock();
+	lock(); ++g_allocs; setAdd((uintptr_t)p); unlock();
 	if((uintptr_t)p & 7){ g_misaligned++; fprintf(stderr, "mflrw: heap: allocation %p not 8-byte aligned\n", p); }
-	if(n >= 64 && !(n & (n - 1))) heapReport("running");	// games are killed, not exited: a running total at 64, 128, 256 ... allocations
 	return p;
 }
-static int untrack(void *p, const char *what){
-	lock(); int mine = setDel((uintptr_t)p); unsigned n = mine ? 0 : ++g_foreign; unlock();
-	if(n && n <= 20) fprintf(stderr, "mflrw: heap: foreign %s %p (#%u)\n", what, p, n);
+static int untrack(void *p, const char *what, void *caller){
+	lock(); int mine = setDel((uintptr_t)p); unsigned n = mine ? (g_frees++, 0) : ++g_foreign; unlock();
+	if(n && n <= 20) fprintf(stderr, "mflrw: heap: foreign %s %p (#%u) caller %p\n", what, p, n, caller);	// caller = return address of RwFree / RwRealloc
 	return mine;
 }
 static void heapReport(const char *when){
-	fprintf(stderr, "mflrw: heap %s: bound %d allocs %u live %u foreign %u misaligned %u\n", when, g_heapBound, g_allocs, g_live, g_foreign, g_misaligned);
+	fprintf(stderr, "mflrw: heap %s: bound %d allocs %u frees %u live %u foreign %u misaligned %u\n", when, g_heapBound, g_allocs, g_frees, g_live, g_foreign, g_misaligned);
 }
 static struct HeapAtExit { ~HeapAtExit(){ heapReport("exit"); } } g_heapAtExit;
+// games are killed, not exited: once bound, a reporter thread prints "heap total" every second while the counters move, so the last such line of a
+// game's log is that process's total (at most 1 s stale).  ponytail: 1 s polling thread; a per-frame hook if a gate ever needs exact totals
+static DWORD WINAPI heapReporter(void *){
+	unsigned last[4] = { ~0u, 0, 0, 0 };
+	for(;;){
+		unsigned now[4] = { g_allocs, g_frees, g_foreign, g_misaligned };
+		if(memcmp(now, last, sizeof now)){ memcpy(last, now, sizeof now); heapReport("total"); }
+		Sleep(1000);
+	}
+}
 
 extern "C" {
 // L2:impl
 RWAPI void * RwMalloc(size_t size, RwUInt32 hint){ return track(xMalloc(size, hint)); }
 // L2:impl
-RWAPI void RwFree(void *mem){ if(!mem) return; untrack(mem, "free"); xFree(mem); }
+RWAPI void RwFree(void *mem){ if(!mem) return; untrack(mem, "free", __builtin_return_address(0)); xFree(mem); }
 // L2:impl  (failure keeps the old block; size 0 frees it like the CRT)
 RWAPI void * RwRealloc(void *mem, size_t size, RwUInt32 hint){
 	if(!mem) return RwMalloc(size, hint);
-	int mine = untrack(mem, "realloc");
+	int mine = untrack(mem, "realloc", __builtin_return_address(0));
 	void *r = xRealloc(mem, size, hint);
 	if(r) return track(r);
 	if(size && mine){ lock(); setAdd((uintptr_t)mem); unlock(); }
@@ -114,6 +124,7 @@ void __cdecl mflrw_mem_bind(void *const *exeTable){
 	if(g_live){ fprintf(stderr, "mflrw: heap: mem_bind refused, %u live DLL-heap blocks\n", g_live); return; }
 	xMalloc = (void *(__cdecl *)(size_t, uint32_t))exeTable[0]; xFree = (void (__cdecl *)(void *))exeTable[1];
 	xRealloc = (void *(__cdecl *)(void *, size_t, uint32_t))exeTable[2]; xCalloc = (void *(__cdecl *)(size_t, size_t, uint32_t))exeTable[3];
+	if(!g_heapBound) CreateThread(nil, 0, heapReporter, nil, 0, nil);
 	g_heapBound = 1;
 	heapReport("bind");
 }

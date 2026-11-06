@@ -540,3 +540,20 @@ EXPORTS
     mflrw_heap_stats
     mflrw_imgread_bind
     rw37_RtBMPImageRead
+    mflrw_rt2d_bind
+    rw37_Rt2dBrushCreate
+    rw37_Rt2dPathClose
+    rw37_Rt2dPathDestroy
+    rw37_Rt2dPathEmpty
+    rw37_Rt2dPathGetBBox
+    rw37_Rt2dPathLineto
+    rw37_Rt2dPathMoveto
+    rw37__rt2dCTMGet
+    rw37__rt2dFlatSubPathExtendBBox
+    mflrw_pngread_bind
+    rw37_RtPNGImageRead
+    mflrw_lod_bind
+    rw37_LODAtomicCallBackRender
+    rw37_LODAtomicCallBackSelectLOD
+    rw37_RpLODAtomicSetGeometry
+    rw37_RpLODAtomicSetRange
