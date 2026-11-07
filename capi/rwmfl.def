@@ -557,3 +557,39 @@ EXPORTS
     rw37_LODAtomicCallBackSelectLOD
     rw37_RpLODAtomicSetGeometry
     rw37_RpLODAtomicSetRange
+    mflrw_d3d_bind
+    rw37_RwD3D9SetSurfaceProperties
+    rw37_RwD3D9SetTexture
+    rw37_RwD3D9SetTextureStageState
+    rw37__rwD3D9RWGetRenderState
+    rw37__rwD3D9RWSetRasterStage
+    rw37__rwD3D9RWSetRenderState
+    rw37__rwD3D9RenderStateCullMode
+    rw37__rwD3D9RenderStateFlushCache
+    rw37__rwD3D9RenderStateOpen
+    rw37__rwD3D9RenderStateReset
+    rw37__rwD3D9RenderStateShadeMode
+    rw37__rwD3D9RenderStateStencilEnable
+    rw37__rwD3D9RenderStateStencilFail
+    rw37__rwD3D9RenderStateStencilFunction
+    rw37__rwD3D9RenderStateStencilFunctionMask
+    rw37__rwD3D9RenderStateStencilFunctionRef
+    rw37__rwD3D9RenderStateStencilFunctionWriteMask
+    rw37__rwD3D9RenderStateStencilPass
+    rw37__rwD3D9RenderStateStencilZFail
+    rw37__rwD3D9RenderStateTextureFilter
+    rw37__rwD3D9RenderStateVertexAlphaEnable
+    rw37_rwD3D9RenderStateZTestEnable
+    mflrw_d3dconv_bind
+    rw37_D3D9ConvA1R5G5B5ToR8G8B8A8
+    rw37_D3D9ConvA4R4G4B4ToR8G8B8A8
+    rw37_D3D9Image32GetFromD3D9Raster
+    rw37_D3D9Image32GetFromRaster
+    rw37_D3D9Raster24_32LinearSetFromImage
+    rw37_D3D9RasterPalletizedSetFromImage
+    rw37_D3D9SelectConvertFn
+    rw37__rwD3D9CheckRasterSize
+    rw37__rwD3D9ImageFindFormat
+    rw37__rwD3D9ImageFindRasterFormat
+    rw37__rwD3D9ImageGetFromRaster
+    rw37__rwD3D9RasterSetFromImage

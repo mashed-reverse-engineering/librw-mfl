@@ -6,3 +6,7 @@ CXX=${CXX:-i686-w64-mingw32-g++}
 F="-std=c++11 -fsyntax-only -w -DLAYOUT_STRICT -I$R -I$R/src $R/capi/layout_check.cpp"
 $CXX $F || { echo "FAIL: clean strict build does not compile"; exit 1; }
 if $CXX $F -DLAYOUT_PLANT 2>&1 | grep -q Planted_Matrix_pos; then echo "PASS: clean compiles, planted row fails"; else echo "FAIL: planted wrong offset was not caught"; exit 1; fi
+# capi/rw37.h (exe-layout mirrors, through capi/g3.cpp): same pair
+G="-std=c++11 -fsyntax-only -w -DRW_D3D9 -I$R -I$R/src $R/capi/g3.cpp"
+$CXX $G || { echo "FAIL: rw37.h asserts do not compile"; exit 1; }
+if $CXX $G -DRW37_PLANT 2>&1 | grep -q Planted_rw37; then echo "PASS: rw37.h clean compiles, planted row fails"; else echo "FAIL: rw37.h planted row was not caught"; exit 1; fi

@@ -1,5 +1,6 @@
 /bin
 /build
+/build_scratch_*
 /obj
 /lib
 /output

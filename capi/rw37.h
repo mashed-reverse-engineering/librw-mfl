@@ -88,3 +88,99 @@ struct RwPluginRegEntry37 {
 static_assert(offsetof(RwPluginRegEntry37, ctor) == 0x20 && offsetof(RwPluginRegEntry37, next) == 0x30, "RwPluginRegEntry37");
 struct RwPluginRegistry37 { int32_t sizeOfStruct; uint8_t pad04[0xc]; RwPluginRegEntry37 *first, *last; };
 static_assert(offsetof(RwPluginRegistry37, first) == 0x10, "RwPluginRegistry37");
+
+// ---- P2 (engine switch 2026-11-07): layout asserts for the objects the D/X kernels and the flip touch. Asserts only, no code uses these types yet.
+// RwRaster37 / ext: the remaining fields (_rwD3D9RasterCreate, rwD3D9RasterCtor, _rwD3D9RasterLock 0x4dfcd0)
+static_assert(offsetof(RwRaster37, cpPixels) == 0x04 && offsetof(RwRaster37, palette) == 0x08 && offsetof(RwRaster37, depth) == 0x14, "RwRaster37 pixels");
+static_assert(offsetof(RwRaster37, originalPixels) == 0x24 && offsetof(RwRaster37, originalStride) == 0x30, "RwRaster37 original pixels");
+static_assert(offsetof(RwD3D9RasterExt37, palette) == 0x04 && offsetof(RwD3D9RasterExt37, alpha) == 0x08 && offsetof(RwD3D9RasterExt37, lockedMipLevel) == 0x0b, "ext bytes");
+static_assert(offsetof(RwD3D9RasterExt37, lockedSurface) == 0x0c && offsetof(RwD3D9RasterExt37, lockedPitch) == 0x10 && offsetof(RwD3D9RasterExt37, lockedBits) == 0x14, "ext lock");
+static_assert(offsetof(RwD3D9RasterExt37, window) == 0x20 && sizeof(RwTexture37) == 0x58, "ext window / texture size");
+
+// RwImage (d3d9convrt reads / writes images): RwImageCreate 0x4dd550 (width 4, height 8, depth 0xc, cpPixels 0x14 = palette 0x18 = flags 0 = 0),
+// RwImageAllocatePixels 0x4dd610 (stride 0x10 = ((depth + 7) >> 3) * width + 3 & ~3, palette behind the pixels for depth 4 / 8, flags |= 1 owns pixels)
+struct RwImage37 {
+	int32_t flags;			// 0x00
+	int32_t width, height, depth;	// 0x04 0x08 0x0c
+	int32_t stride;			// 0x10
+	uint8_t *cpPixels;		// 0x14
+	uint8_t *palette;		// 0x18  RGBA entries
+};
+static_assert(offsetof(RwImage37, depth) == 0x0c && offsetof(RwImage37, stride) == 0x10 && offsetof(RwImage37, palette) == 0x18 && sizeof(RwImage37) == 0x1c, "RwImage37");
+
+// RwGlobals (RwEngineInstance, capi/core.cpp shadow of 0x140 bytes): curCamera 0, curWorld 4 (42 / 1 game reads), dOpenDevice 0x10 (copied as 56 bytes,
+// fpRenderStateSet 0x20: 604 game reads; filled by mflrw_shadow_device, capi/d3d9dev.cpp), stdFunc 0x48, stringFuncs 0xc4, memoryFuncs 0x108.. (audit
+// ghidra/output/rw_offset_audit_2026-11-03.csv rows RwEngineInstance)
+struct RwDevice37 {
+	float gammaCorrection;		// 0x00 (global 0x10)
+	void *fpSystem;			// 0x04
+	float zBufferNear, zBufferFar;	// 0x08 0x0c (global 0x18 / 0x1c)
+	void *fpRenderStateSet, *fpRenderStateGet;	// 0x10 0x14 (global 0x20 / 0x24)
+	void *fpIm2DRenderLine, *fpIm2DRenderTriangle, *fpIm2DRenderPrimitive, *fpIm2DRenderIndexedPrimitive;	// 0x18..0x24 (global 0x28..0x34)
+	void *fpIm3D[4];		// 0x28..0x34
+};
+static_assert(sizeof(RwDevice37) == 56 && offsetof(RwDevice37, fpRenderStateSet) == 0x10 && offsetof(RwDevice37, fpIm2DRenderIndexedPrimitive) == 0x24, "RwDevice37");
+struct RwGlobals37 {
+	void *curCamera, *curWorld;	// 0x00 0x04
+	uint8_t pad08[8];
+	RwDevice37 dOpenDevice;		// 0x10
+	void *stdFunc[29];		// 0x48
+	uint8_t padbc[8];
+	void *stringFuncs[17];		// 0xc4  vecSprintf .. (strcpy +8, strcat +0x10, strcmp +0x24, strlen +0x30)
+	void *memoryFuncs[4];		// 0x108 rwmalloc, rwfree, rwrealloc, rwcalloc
+	void *freeListAlloc, *freeListFree;	// 0x118 0x11c
+};
+static_assert(offsetof(RwGlobals37, dOpenDevice) == 0x10 && offsetof(RwGlobals37, dOpenDevice.fpRenderStateSet) == 0x20, "RwGlobals37 device");
+static_assert(offsetof(RwGlobals37, dOpenDevice.zBufferNear) == 0x18 && offsetof(RwGlobals37, dOpenDevice.fpIm2DRenderIndexedPrimitive) == 0x34, "RwGlobals37 device fields");
+static_assert(offsetof(RwGlobals37, stdFunc) == 0x48 && offsetof(RwGlobals37, stdFunc[RW37_STD_RASTERCREATE / 4 - 0x12]) == RW37_STD_RASTERCREATE, "RwGlobals37 stdFunc");
+static_assert(offsetof(RwGlobals37, stringFuncs) == 0xc4 && offsetof(RwGlobals37, stringFuncs[RW37_STRLEN / 4 - 0x31]) == RW37_STRLEN, "RwGlobals37 stringFuncs");
+static_assert(offsetof(RwGlobals37, memoryFuncs) == 0x108 && offsetof(RwGlobals37, freeListAlloc) == RW37_FREELISTALLOC && offsetof(RwGlobals37, freeListFree) == RW37_FREELISTFREE, "RwGlobals37 memory");
+static_assert(sizeof(RwGlobals37) <= 0x140, "RwGlobals37 fits the capi/core.cpp shadow");
+
+// RwCamera: fields the game / tier-2 C read by offset. frustumCorners[8] (V3d) 0x124..0x183: RwCameraCalcPixelRay 0x5698c0 reads 0x124..0x180
+// (and frameBuffer 0x60 -> raster width 0xc / height 0x10); librw's Camera has them elsewhere (layout_check.cpp TODO rows: a flip blocker).
+struct RwV3d37 { float x, y, z; };
+struct RwCamera37 {
+	uint8_t object[0x14];		// 0x00  RwObjectHasFrame
+	int32_t projectionType;		// 0x14
+	void *beginUpdate, *endUpdate;	// 0x18 0x1c
+	float viewMatrix[16];		// 0x20
+	RwRaster37 *frameBuffer, *zBuffer;	// 0x60 0x64
+	float viewWindow[2];		// 0x68
+	float recipViewWindow[2];	// 0x70
+	float viewOffset[2];		// 0x78
+	float nearPlane, farPlane, fogPlane;	// 0x80 0x84 0x88
+	uint8_t pad8c[0x80];		// 0x8c  zScale / zShift / frustum planes (not read by the game)
+	float frustumBoundBox[6];	// 0x10c
+	RwV3d37 frustumCorners[8];	// 0x124
+};
+static_assert(offsetof(RwCamera37, frameBuffer) == 0x60 && offsetof(RwCamera37, viewWindow) == 0x68 && offsetof(RwCamera37, nearPlane) == 0x80, "RwCamera37");
+static_assert(offsetof(RwCamera37, fogPlane) == 0x88 && offsetof(RwCamera37, frustumBoundBox) == 0x10c, "RwCamera37 fog / bbox");
+static_assert(offsetof(RwCamera37, frustumCorners) == 0x124 && offsetof(RwCamera37, frustumCorners[4]) == 0x154 && sizeof(RwCamera37) == 0x184, "RwCamera37 frustumCorners");
+
+// RpPTank atomic extension (the block behind *(atomic + __rpPTankAtomicDataOffset)): the 12 fields the game C writes by offset (audit rows PTankExt;
+// the full 0x138 B table is src/rwptank.h ptank::Data, asserted in src/ptank.cpp). No game write hits the gaps.
+struct RpPTankExt37 {
+	int32_t maxCount;		// 0x00
+	int32_t actPCount;		// 0x04  game writes the active count
+	uint8_t pad08[0x38];
+	uint32_t instFlags;		// 0x40  update flags (game ORs 0x800000 etc.)
+	uint8_t pad44[0x60];
+	int32_t srcBlend, dstBlend;	// 0xa4 0xa8
+	int32_t vertexAlphaBlend;	// 0xac
+	float cCenter[2];		// 0xb0
+	float cSize[2];			// 0xb8 0xbc
+	float cRotate;			// 0xc0
+	uint8_t cColor[4];		// 0xc4
+	uint8_t cVtxColor[4][4];	// 0xc8
+	float cUV[8];			// 0xd8 (u0 0xd8, v0 0xdc, u1 0xe0, v1 0xe4, ...)
+	float cMatrix[16];		// 0xf8  RwMatrix
+};
+static_assert(offsetof(RpPTankExt37, actPCount) == 0x04 && offsetof(RpPTankExt37, instFlags) == 0x40, "RpPTankExt37 counts");
+static_assert(offsetof(RpPTankExt37, srcBlend) == 0xa4 && offsetof(RpPTankExt37, dstBlend) == 0xa8 && offsetof(RpPTankExt37, vertexAlphaBlend) == 0xac, "RpPTankExt37 blend");
+static_assert(offsetof(RpPTankExt37, cSize) == 0xb8 && offsetof(RpPTankExt37, cSize[1]) == 0xbc, "RpPTankExt37 size");
+static_assert(offsetof(RpPTankExt37, cUV) == 0xd8 && offsetof(RpPTankExt37, cUV[1]) == 0xdc && offsetof(RpPTankExt37, cUV[2]) == 0xe0 && offsetof(RpPTankExt37, cUV[3]) == 0xe4, "RpPTankExt37 uv");
+static_assert(offsetof(RpPTankExt37, cMatrix) == 0xf8 && sizeof(RpPTankExt37) == 0x138, "RpPTankExt37 matrix / size");
+#ifdef RW37_PLANT	// negative fixture (tools/layout_fixture.sh): one wrong row must fail the build
+static_assert(offsetof(RwCamera37, frustumCorners) == 0x128, "Planted_rw37_frustumCorners");
+#endif
