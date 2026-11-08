@@ -593,3 +593,21 @@ EXPORTS
     rw37__rwD3D9ImageFindRasterFormat
     rw37__rwD3D9ImageGetFromRaster
     rw37__rwD3D9RasterSetFromImage
+    mflrw_d3dim2d_bind
+    rw37_D3D9DynamicVertexBufferManagerCreate
+    rw37_RwD3D9CreateVertexBuffer
+    rw37_RwD3D9DestroyVertexBuffer
+    rw37_RwD3D9DynamicVertexBufferCreate
+    rw37_RwD3D9DynamicVertexBufferLock
+    rw37__rwD3D9DynamicVertexBufferManagerForceDiscard
+    rw37__rwD3D9DynamicVertexBufferRelease
+    rw37__rwD3D9DynamicVertexBufferRestore
+    rw37__rwD3D9Im2DRenderClose
+    rw37__rwD3D9Im2DRenderOpen
+    rw37__rwD3D9Im2DRenderPrimitive
+    rw37__rwD3D9VertexBufferManagerClose
+    rw37__rwD3D9VertexBufferManagerOpen
+    rw37_rwD3D9Im2DRenderIndexedPrimitive
+    rw37_rwD3D9Im2DRenderLine
+    rw37_rwD3D9Im2DRenderTriangle
+    rw37_rxD3D9Im2DRenderFlush
