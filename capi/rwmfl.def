@@ -631,3 +631,12 @@ EXPORTS
     rw37__rwD3D9LightsOpen
     rw37_rpD3D9LightCopy
     rw37_rpD3D9LightDestructor
+    mflrw_d3dxform_bind
+    rw37_D3D9ClearCacheMatrix
+    rw37_D3D9ClearCacheShaders
+    rw37_RwD3D9GetTransform
+    rw37_RwD3D9SetStreamSource
+    rw37_RwD3D9SetTransform
+    rw37_RwD3D9SetTransformWorld
+    rw37__rwD3D9SetStreams
+    rw37__rwD3D9SetVertexDeclaration
