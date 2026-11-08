@@ -619,3 +619,15 @@ EXPORTS
     rw37__rwD3D9RasterLock
     rw37__rwD3D9RasterUnlock
     rw37_rwD3D9CreateTextureRaster
+    mflrw_d3dlights_bind
+    rw37_RwD3D9EnableLight
+    rw37_RwD3D9SetLight
+    rw37__rwD3D9LightDirectionalEnable
+    rw37__rwD3D9LightLocalEnable
+    rw37__rwD3D9LightsClose
+    rw37__rwD3D9LightsEnable
+    rw37__rwD3D9LightsEqual
+    rw37__rwD3D9LightsGlobalEnable
+    rw37__rwD3D9LightsOpen
+    rw37_rpD3D9LightCopy
+    rw37_rpD3D9LightDestructor
