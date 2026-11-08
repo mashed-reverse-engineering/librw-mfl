@@ -611,3 +611,11 @@ EXPORTS
     rw37_rwD3D9Im2DRenderLine
     rw37_rwD3D9Im2DRenderTriangle
     rw37_rxD3D9Im2DRenderFlush
+    mflrw_d3dras_bind
+    rw37_RwD3D9RasterCreate
+    rw37__rwD3D9FindCorrectRasterFormat
+    rw37__rwD3D9RasterCreate
+    rw37__rwD3D9RasterDestroy
+    rw37__rwD3D9RasterLock
+    rw37__rwD3D9RasterUnlock
+    rw37_rwD3D9CreateTextureRaster
