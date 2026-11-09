@@ -97,8 +97,9 @@ u32 *__cdecl rw37__rwD3D9MeshGetNumVerticesMinIndex(const u16 *idx, u32 n, u32 *
 	return numVerts;
 }
 
-// 0x4fa790: triangle order for FUN_004fa760: each triangle's three indices sorted ascending, then min, mid, max compared
-static int __cdecl cmpTri(const void *pa, const void *pb){
+// SortTriangles 0x4fa790: triangle order for FUN_004fa760 and rxD3D9Instance (d3d9pipe.cpp): each triangle's three indices sorted ascending, then min, mid,
+// max compared.  Exported: the exe's qsort callers reach it through 0x4fa790 once LIB_RW lists d3d9pipe.
+int __cdecl rw37_SortTriangles(const void *pa, const void *pb){
 	const u16 *a = (const u16 *)pa, *b = (const u16 *)pb;
 	u32 a0 = a[0], a1 = a[1], a2 = a[2], t;
 	if(a0 > a1){ t = a0; a0 = a1; a1 = t; }
@@ -114,7 +115,7 @@ static int __cdecl cmpTri(const void *pa, const void *pb){
 // FUN_004fa760: sort the numIndices / 3 triangles of a u16 triangle list (exe CRT qsort, same algorithm as the original call)
 void __cdecl rw37_D3D9SortTriList(u16 *tris, u32 numIndices){
 	if(!g_qsort){ fprintf(stderr, "[mflrw] rwleaf called before mflrw_rwleaf_bind\n"); abort(); }
-	g_qsort(tris, numIndices / 3, 6, cmpTri);
+	g_qsort(tris, numIndices / 3, 6, rw37_SortTriangles);
 }
 
 // 0x4fa820: a u16 tri-strip as a triangle list, minIndex subtracted, degenerate triangles dropped, odd triangles reversed; returns the

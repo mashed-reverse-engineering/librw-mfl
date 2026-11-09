@@ -523,6 +523,7 @@ EXPORTS
     mflrw_rwleaf_bind
     rw37_D3D9MatrixInvertOrthoNormalized
     rw37_D3D9SortTriList
+    rw37_SortTriangles
     rw37__rwD3D9ConvertToTriList
     rw37__rwD3D9MeshGetNumVerticesMinIndex
     rw37__rx_rxRadixExchangeSort
@@ -656,3 +657,8 @@ EXPORTS
     rw37_rwD3D9RasterGetMipLevels
     rw37_rwD3D9RasterSubRaster
     rw37_rwD3D9TextureSetRaster
+    mflrw_d3d9pipe_bind
+    rw37__rwD3D9EnableClippingIfNeeded
+    rw37__rwD3D9ResourceEntryInstanceDataDestroy
+    rw37_rxD3D9DefaultRenderCallback
+    rw37_rxD3D9Instance
