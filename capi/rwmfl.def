@@ -662,3 +662,8 @@ EXPORTS
     rw37__rwD3D9ResourceEntryInstanceDataDestroy
     rw37_rxD3D9DefaultRenderCallback
     rw37_rxD3D9Instance
+    mflrw_d3d9texdic_bind
+    rw37__rwD3D9NativeTextureGetSize
+    rw37_rwD3D9NativeTextureRead
+    mflrw_d3d9vdtan_bind
+    rw37__rpD3D9VertexDeclarationInstTangent
