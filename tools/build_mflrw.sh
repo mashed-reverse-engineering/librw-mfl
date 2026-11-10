@@ -30,7 +30,7 @@ for P in d3d9 null; do
 	wait
 	LIBS=""; DLL=mflrw_null.dll
 	[ $P = d3d9 ] && { LIBS="-ld3d9 -lgdi32 -luser32"; DLL=mflrw.dll; }
-	$CXX -shared -O2 -static-libgcc -static-libstdc++ -o "$O/$DLL" "$R/capi/rwmfl.def" "$D"/*.o $LIBS -Wl,--no-insert-timestamp -Wl,--out-implib,"$O/${DLL%.dll}.dll.a"
+	$CXX -shared -O2 -static-libgcc -static-libstdc++ -o "$O/$DLL" "$R/capi/rwmfl.def" "$D"/*.o $LIBS -Wl,--no-insert-timestamp -Wl,--image-base,0x6b140000 -Wl,--out-implib,"$O/${DLL%.dll}.dll.a"
 done
 echo "built $O/mflrw.dll $O/mflrw_null.dll"
 # test exe for the Wine run: tools/build_mflrw.sh also builds $O/test_g0.exe; run  docker run --rm -v $O:/t tianon/wine:latest wine /t/test_g0.exe /t/mflrw.dll

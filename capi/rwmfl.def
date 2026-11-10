@@ -390,24 +390,24 @@ EXPORTS
     mflrw_exe_bind
     rw37_RwRasterCreate
     rw37_RwRasterDestroy
-    rw37_RwRasterSubRaster
-    rw37_RwRasterGetNumLevels
-    rw37_RwRasterLock
-    rw37_RwRasterUnlock
-    rw37_RwRasterLockPalette
-    rw37_RwRasterUnlockPalette
     rw37_RwRasterGetCurrentContext
+    rw37_RwRasterGetNumLevels
     rw37_RwRasterGetOffset
-    rw37_RwTextureGetAutoMipmapping
+    rw37_RwRasterLock
+    rw37_RwRasterLockPalette
+    rw37_RwRasterSubRaster
+    rw37_RwRasterUnlock
+    rw37_RwRasterUnlockPalette
+    rw37_RwTexDictionaryAddTexture
     rw37_RwTexDictionaryCreate
     rw37_RwTexDictionaryDestroy
+    rw37_RwTexDictionaryFindNamedTexture
     rw37_RwTextureCreate
     rw37_RwTextureDestroy
-    rw37_destroyTexture
-    rw37_RwTextureSetName
+    rw37_RwTextureGetAutoMipmapping
     rw37_RwTextureSetMaskName
-    rw37_RwTexDictionaryAddTexture
-    rw37_RwTexDictionaryFindNamedTexture
+    rw37_RwTextureSetName
+    rw37_destroyTexture
     mflrw_collis_bind
     rw37_GeometryForAllTriIntsecLine
     rw37_WorldForAllTriIntsecBBox
@@ -667,3 +667,52 @@ EXPORTS
     rw37_rwD3D9NativeTextureRead
     mflrw_d3d9vdtan_bind
     rw37__rpD3D9VertexDeclarationInstTangent
+    mflrw_texread_bind
+    rw37_ImageAttempRead
+    rw37_ImageGetScratchMem
+    rw37_ImagePathForAllFullNames
+    rw37_RwImageFindFileType
+    rw37_RwImageRead
+    rw37_RwImageReadMaskedImage
+    rw37_RwImageStreamRead
+    rw37_RwTexDictionaryGetCurrent
+    rw37_RwTexDictionarySetCurrent
+    rw37_RwTexDictionaryStreamRead
+    rw37_RwTextureGetMipmapping
+    rw37_RwTextureRasterGenerateMipmaps
+    rw37_RwTextureRead
+    rw37_RwTextureRegisterPlugin
+    rw37_RwTextureSetAutoMipmapping
+    rw37_RwTextureSetMipmapping
+    rw37_RwTextureSetRaster
+    rw37_RwTextureStreamRead
+    rw37_TextureDefaultFind
+    mflrw_texread2_bind
+    rw37_PalettizeMipmaps
+    rw37_RtBMPImageWrite
+    rw37_RtPITexDictionaryStreamRead
+    rw37_RwImageSetGamma
+    rw37_TextureDefaultMipmapName
+    rw37_TextureDefaultMipmapRead
+    rw37_TextureDefaultRead
+    rw37_TextureImageReadAndSize
+    rw37_TextureRasterDefaultBuildMipmaps
+    rw37_rtpitexdTextureStreamReadPre
+    rw37_rwImageClose
+    rw37_rwImageOpen
+    rw37_rwRasterOpen
+    rw37_rwTextureClose
+    rw37_rwTextureOpen
+    mflrw_matfx_bind
+    rw37_ApplyEnvMapTextureMatrix
+    rw37_D3D9AtomicMatFXInstanceCallback
+    rw37_D3D9WorldSectorMatFXInstanceCallback
+    rw37_UserDataArrayAdd
+    rw37_UserDataGeometryArrayAdd
+    rw37_UserDataWorldSectorArrayAdd
+    rw37_rpMatFXD3D9AtomicMatFXBumpMapRender
+    rw37_rpMatFXD3D9AtomicMatFXDefaultRender
+    rw37_rpMatFXD3D9AtomicMatFXEnvRender
+    rw37_rpMatFXPipelinesCreate
+    rw37_rpMatFXSetupBumpMapTexture
+    rw37_rwD3D9AtomicMatFXRenderCallback
