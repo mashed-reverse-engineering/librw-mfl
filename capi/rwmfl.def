@@ -716,3 +716,14 @@ EXPORTS
     rw37_rpMatFXPipelinesCreate
     rw37_rpMatFXSetupBumpMapTexture
     rw37_rwD3D9AtomicMatFXRenderCallback
+    mflrw_matfx2_bind
+    rw37_CalculatePerturbedUVs
+    rw37_rpMatFXD3D9AtomicMatFXDualPassRender
+    mflrw_d3d9dev_bind
+    rw37_D3D9CalculateMaxMultisamplingLevels
+    rw37_RwD3D9DeleteVertexDeclaration
+    rw37_RwD3D9EngineSetRefreshRate
+    rw37_RwD3D9GetCurrentD3DDevice
+    rw37_RwD3D9SetRenderTarget
+    rw37_rwD3D9CameraEndUpdate
+    rw37_rwD3D9SetRenderTargetSurface
