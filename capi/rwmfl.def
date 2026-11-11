@@ -727,3 +727,28 @@ EXPORTS
     rw37_RwD3D9SetRenderTarget
     rw37_rwD3D9CameraEndUpdate
     rw37_rwD3D9SetRenderTargetSurface
+    mflrw_d3d9dev2_bind
+    rw37_D3D9CreateDisplayModesList
+    rw37_D3D9DeviceReleaseVideoMemory
+    rw37_D3D9DeviceSystemStandards
+    rw37_D3D9DeviceSystemStop
+    rw37_D3D9SetPresentParameters
+    rw37_RwD3D9CameraAttachWindow
+    rw37_RwD3D9CreateVertexDeclaration
+    rw37__rwD3D9RasterConvertToNonPalettized
+    rw37_rwD3D9BeginScene
+    rw37_rwD3D9CameraBeginUpdate
+    rw37_rwD3D9CameraClear
+    rw37_rwD3D9IndexBuffer32bitsCreate
+    rw37_rwD3D9RasterClear
+    rw37_rwD3D9RasterClearRect
+    rw37_rwD3D9RasterClose
+    rw37_rwD3D9RasterCtor
+    rw37_rwD3D9RasterDtor
+    rw37_rwD3D9RasterLockPalette
+    rw37_rwD3D9RasterRenderFast
+    rw37_rwD3D9RasterRenderGeneric
+    rw37_rwD3D9RasterRenderScaled
+    rw37_rwD3D9RasterShowRaster
+    rw37_rwD3D9RasterUnlockPalette
+    rw37_rwD3D9SetRasterContext
