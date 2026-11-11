@@ -752,3 +752,21 @@ EXPORTS
     rw37_rwD3D9RasterShowRaster
     rw37_rwD3D9RasterUnlockPalette
     rw37_rwD3D9SetRasterContext
+    mflrw_d3d9rasq_bind
+    rw37_D3D9RasterClearGeneric
+    rw37_rwD3D9RasterCopyQuad
+    rw37_rwD3D9RasterOpen
+    rw37_rwD3D9RasterPluginAttach
+    rw37_rwD3D9RasterRender
+    rw37_rwD3D9RasterRenderQuad
+    mflrw_noded3d9_bind
+    rw37_D3D9AtomicAllInOneNode
+    rw37_D3D9AtomicAllInOnePipelineInit
+    rw37_D3D9AtomicDefaultReinstanceCallback
+    rw37_D3D9VertexElementSortCB
+    rw37_D3D9WorldSectorAllInOneNode
+    rw37_D3D9WorldSectorAllInOnePipelineInit
+    rw37_D3D9WorldSectorDefaultLightingCallback
+    rw37_rwD3D9AtomicDefaultLightingCallback
+    mflrw_d3d9sys_bind
+    rw37_D3D9System
