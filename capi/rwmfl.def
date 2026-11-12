@@ -768,5 +768,16 @@ EXPORTS
     rw37_D3D9WorldSectorAllInOnePipelineInit
     rw37_D3D9WorldSectorDefaultLightingCallback
     rw37_rwD3D9AtomicDefaultLightingCallback
+    mflrw_noded3d9i_bind
+    rw37_D3D9AtomicDefaultInstanceCallback
+    rw37_D3D9WorldSectorDefaultInstanceCallback
+    mflrw_d3d9submit_bind
+    rw37_D3D9ImmInstanceNode
+    rw37_rwD3D9Im3DRenderClose
+    rw37_rwD3D9Im3DRenderOpen
+    rw37_rxD3D9SubmitNode
     mflrw_d3d9sys_bind
     rw37_D3D9System
+    mflrw_d3d9patch_bind
+    rw37_rpD3D9PatchInstanceAtomic
+    rw37_rwD3D9PatchAtomicAllInOneNodeNode
