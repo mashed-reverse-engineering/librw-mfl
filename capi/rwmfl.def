@@ -781,3 +781,8 @@ EXPORTS
     mflrw_d3d9patch_bind
     rw37_rpD3D9PatchInstanceAtomic
     rw37_rwD3D9PatchAtomicAllInOneNodeNode
+    mflrw_d3d9ptank_bind
+    rw37_rpPTankD3D9Create
+    rw37_rpPTankD3D9InsEnding
+    rw37_rpPTankD3D9InsSetup
+    rw37_rpPTankD3D9RenderCallBack
