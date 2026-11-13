@@ -147,13 +147,57 @@ RWAPI RwMatrix *RwMatrixScale(RwMatrix *m, const RwV3d *s, RwOpCombineType op){
 
 // RwMatrixMultiply / Invert / Rotate / Transform, RtIntersectionLineTriangle, RpRandom / RpRandomSeed: disasm-exact in g1.cpp (S4)
 
-// ---- Rt intersection / barycentric: librw implementations, diff-verified against a float32 port of the decompile
-// L1:librw (0x569110)
+// ---- Rt intersection / barycentric (K3 W7: were librw implementations, DIFF in rw_g0_check.sh; now op for op)
+// L1:exact 0x4d51f0 (_rwV3dNormalize: returns the reciprocal length from the 12 bit table, 0 for a 0 length; out may alias in)
+static inline float v3dNormalizeRecip(RwV3d *out, const RwV3d *in){
+	float r = tabInvSqrt(dot3(in->x, in->y, in->z));
+	out->x = r*in->x; out->y = in->y*r; out->z = in->z*r;
+	return r;
+}
+// L1:exact 0x569110.  The original also overwrites its own argument slots (line, sphere) with temporaries: not reproduced (callee-owned).
 RWAPI RwBool RtLineSphereIntersectionTest(RwLine *line, RwSphere *sphere, RwReal *dist){
-	return rw::lineSphereIntersectionTest((const rw::Line*)line, (const rw::Sphere*)sphere, dist); }
-// L1:librw (0x569610)
+	RwV3d dir;
+	dir.x = line->end.x - line->start.x; dir.y = line->end.y - line->start.y; dir.z = line->end.z - line->start.z;
+	float inv = v3dNormalizeRecip(&dir, &dir);
+	float r = sphere->radius, r2 = r*r;
+	float dx = sphere->center.x - line->start.x, dy = sphere->center.y - line->start.y, dz = sphere->center.z - line->start.z;
+	float t, proj, dist2;
+	proj = dy*dir.y; t = dx*dir.x; proj = proj + t; t = dz*dir.z; proj = proj + t;
+	dist2 = dy*dy; t = dx*dx; dist2 = dist2 + t; t = dz*dz; dist2 = dist2 + t;
+	if(dist2 < r2){ *dist = proj*inv; return 1; }			// fcomp; test ah,5; jp: unordered takes the outside path
+	if(!(proj > 0.0f)) return 0;					// C3|C0: <= 0 or unordered
+	t = proj*proj; t = dist2 - t; t = r2 - t;
+	if(!(t >= 0.0f)) return 0;					// C0: < 0 or unordered
+	*dist = proj*inv; return 1;
+}
+// L1:exact 0x569610 (m = 16 floats; eps 0x5f6328 = 2^-12, third 0x5ddc1c)
 RWAPI RwBool RtBaryGetTransform(RtBaryTransform m, RwReal *scale, const RwV3d *v0, const RwV3d *v1, const RwV3d *v2){
-	return rw::baryGetTransform((rw::Matrix*)m, scale, (const rw::V3d*)v0, (const rw::V3d*)v1, (const rw::V3d*)v2); }
+	const float eps = 0.000244140625f, third = 1.0f/3.0f;
+	float e1x = v1->x - v2->x, e1y = v1->y - v2->y, e1z = v1->z - v2->z;
+	float e2x = v2->x - v0->x, e2y = v2->y - v0->y, e2z = v2->z - v0->z;
+	float nx = e2z*e1y - e2y*e1z;
+	float ny = e2x*e1z - e2z*e1x;
+	float nz = e2y*e1x - e2x*e1y;
+	float d = ny*ny; d = d + nx*nx; d = d + nz*nz;
+	float inv; RwBool ret;
+	if(eps < d){ float s = __builtin_sqrtf(d); *scale = s; inv = 1.0f/s; ret = 1; }	// fsqrt; fdivr [1.0]
+	else { ret = 0; *scale = 0.0f; inv = 0.0f; }
+	float A = nx*inv, B = inv*ny, C = inv*nz;
+	float P = e1y*C - B*e1z, Q = A*e1z - C*e1x, R = B*e1x - A*e1y;
+	P = P*inv; Q = Q*inv; R = R*inv;
+	float U = C*e2y - B*e2z, V = A*e2z - C*e2x, W = B*e2x - A*e2y;
+	U = U*inv; V = V*inv; W = W*inv;
+	float sx = v0->x + v1->x, sy = v0->y + v1->y, sz = v0->z + v1->z;
+	sx = sx + v2->x; sy = v2->y + sy; sz = v2->z + sz;
+	m[1] = U; m[5] = V; m[9] = W;					// store order of the original (5697c9..)
+	sx = sx*third; sy = sy*third; sz = sz*third;
+	m[0] = P; m[2] = -(U + P); m[3] = A; m[4] = Q; m[6] = -(V + Q); m[7] = B; m[8] = R; m[10] = -(W + R); m[11] = C;
+	float t = v2->y*Q; t = t + P*v2->x; t = t + v2->z*R; m[12] = -t;
+	t = v0->y*V; t = t + U*v0->x; t = t + v0->z*W; t = -t; m[13] = t;
+	m[14] = 1.0f - (t + m[12]);
+	t = sy*B; t = t + sx*A; t = t + sz*C; m[15] = -t;
+	return ret;
+}
 
 RWAPI RwUInt32 rwmfl_get_fpucw(void){ unsigned short cw; __asm__ volatile("fnstcw %0" : "=m"(cw)); return cw; }
 

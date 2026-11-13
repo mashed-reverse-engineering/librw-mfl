@@ -786,3 +786,12 @@ EXPORTS
     rw37_rpPTankD3D9InsEnding
     rw37_rpPTankD3D9InsSetup
     rw37_rpPTankD3D9RenderCallBack
+    mflrw_d3d9vsu_bind
+    rw37__rwD3D9VSGetNormalInLocalSpace
+    rw37__rwD3D9VSGetPointInLocalSpace
+    rw37__rwD3D9VSGetRadiusInLocalSpace
+    mflrw_d3d9vs_bind
+    rw37__rpD3D9VertexShaderCacheOpen
+    rw37__rpD3D9VertexShaderCachePurge
+    rw37_rpD3D9GetVertexShader
+    rw37_rxD3D9VertexShaderDefaultGetMaterialShaderCallBack
