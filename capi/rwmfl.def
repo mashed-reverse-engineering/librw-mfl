@@ -795,3 +795,13 @@ EXPORTS
     rw37__rpD3D9VertexShaderCachePurge
     rw37_rpD3D9GetVertexShader
     rw37_rxD3D9VertexShaderDefaultGetMaterialShaderCallBack
+    mflrw_d3d9vsgen_bind
+    rw37_rpD3D9GenerateVertexShader
+    mflrw_d3d9nat_bind
+    rw37_RpBuildMeshGenerateDefaultTriStrip
+    rw37__rpD3D9UsageFlagPluginAttach
+    rw37__rpGeometryNativeSize
+    rw37__rpWorldSectorNativeSize
+    mflrw_d3d9vs2_bind
+    rw37_rxD3D9VertexShaderDefaultLightingCallBack
+    rw37_rxD3D9VertexShaderDefaultMeshRenderCallBack
